@@ -1,5 +1,7 @@
-<script setup></script>
-
+<script setup>
+const id="blue";
+</script>
 <template>
-  <header>Hello</header>
+  <header :class="`color-${id}`">Hello</header>
+  <main :id></main>
 </template>
