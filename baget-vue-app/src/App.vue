@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import LoginPage from "./components/LoginPage.vue";
 import OrderForm from "./components/OrderForm.vue";
+import CustomersDesk from "./components/CustomersDesk.vue";
 import { canAccess, clearSession, restoreSession } from "./services/auth.js";
 
 const session = ref(restoreSession());
@@ -20,6 +21,7 @@ const navigation = [
     badge: "12",
     access: "orders:read",
   },
+  { id: "customers", icon: "♙", label: "Клієнти та інвойси", access: "customers:finance:read" },
   { id: "workshop", icon: "✦", label: "Майстерня", access: "workshop:read" },
   { id: "materials", icon: "▱", label: "Матеріали", access: "materials:read" },
   { id: "scanning", icon: "↗", label: "Сканування", access: "scanning:read" },
@@ -101,6 +103,7 @@ function signOut() {
         </div>
       </header>
       <OrderForm v-if="activeSection === 'new-order'" :session="session" />
+      <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" />
       <section v-else class="placeholder-page">
         <p>
           Розділ «{{
