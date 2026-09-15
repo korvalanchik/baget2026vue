@@ -3,10 +3,11 @@ import { computed, ref } from "vue";
 import LoginPage from "./components/LoginPage.vue";
 import OrderForm from "./components/OrderForm.vue";
 import CustomersDesk from "./components/CustomersDesk.vue";
+import WorkshopDesk from "./components/WorkshopDesk.vue";
 import { canAccess, clearSession, restoreSession } from "./services/auth.js";
 
 const session = ref(restoreSession());
-const activeSection = ref("new-order");
+const activeSection = ref(canAccess(session.value, 'orders:create') ? 'new-order' : canAccess(session.value, 'workshop:read') ? 'workshop' : 'scanning');
 const navigation = [
   {
     id: "new-order",
@@ -104,6 +105,7 @@ function signOut() {
       </header>
       <OrderForm v-if="activeSection === 'new-order'" :session="session" />
       <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" />
+      <WorkshopDesk v-else-if="activeSection === 'workshop'" :session="session" @open-finance="activeSection = 'customers'" />
       <section v-else class="placeholder-page">
         <p>
           Розділ «{{
