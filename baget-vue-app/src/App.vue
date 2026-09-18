@@ -2,6 +2,8 @@
 import { computed, ref } from "vue";
 import LoginPage from "./components/LoginPage.vue";
 import OrderForm from "./components/OrderForm.vue";
+import EstimateCalculator from "./components/EstimateCalculator.vue";
+const orderTab = ref("estimate");
 import CustomersDesk from "./components/CustomersDesk.vue";
 import WorkshopDesk from "./components/WorkshopDesk.vue";
 import { canAccess, clearSession, restoreSession } from "./services/auth.js";
@@ -103,7 +105,16 @@ function signOut() {
           </button>
         </div>
       </header>
-      <OrderForm v-if="activeSection === 'new-order'" :session="session" />
+      <section v-if="activeSection === 'new-order'">
+        <div class="order-mode-tabs" role="group" aria-label="Режим роботи">
+          <button :class="{ selected: orderTab === 'estimate' }" :aria-pressed="orderTab === 'estimate'" @click="orderTab = 'estimate'">Розрахунок</button>
+          <button :class="{ selected: orderTab === 'legacy' }" :aria-pressed="orderTab === 'legacy'" @click="orderTab = 'legacy'">Оформлення замовлення</button>
+        </div>
+        <KeepAlive>
+        <EstimateCalculator v-if="orderTab === 'estimate'" :session="session" />
+        <OrderForm v-else :session="session" />
+        </KeepAlive>
+      </section>
       <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" />
       <WorkshopDesk v-else-if="activeSection === 'workshop'" :session="session" @open-finance="activeSection = 'customers'" />
       <section v-else class="placeholder-page">
@@ -123,3 +134,9 @@ function signOut() {
     </main>
   </div>
 </template>
+
+<style scoped>
+.order-mode-tabs { display: flex; gap: 8px; padding: 20px 24px 0; flex-wrap: wrap; }
+.order-mode-tabs button { padding: 12px 18px; border-radius: 10px; border: 1px solid #d7ded9; background: white; cursor: pointer; }
+.order-mode-tabs .selected { color: white; background: #254d3a; border-color: #254d3a; }
+</style>
