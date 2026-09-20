@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import FrameAutocomplete from "./FrameAutocomplete.vue";
 import { loadOrderCatalog } from "../services/orders.js";
 import { previewEstimate } from "../services/calculations.js";
 import {
@@ -214,18 +215,14 @@ onBeforeUnmount(() => {
               max="10000"
               step="1"
           /></label>
-          <label v-if="a.withFrame" class="estimate-frame"
-            >Артикул багета<select
-              v-model="a.framePartNo"
-              required
-              :disabled="catalogBusy"
-            >
-              <option value="" disabled>Оберіть багет</option>
-              <option v-for="p in profiles" :key="p.partNo" :value="p.partNo">
-                {{ p.description }}
-              </option>
-            </select></label
-          >
+          <FrameAutocomplete
+            v-if="a.withFrame"
+            v-model="a.framePartNo"
+            class="estimate-frame"
+            :profiles="profiles"
+            :disabled="catalogBusy"
+            :input-id="`${a.id}-frame`"
+          />
         </div>
         <div v-if="a.withFrame" class="estimate-groups">
           <fieldset v-for="group in groups" :key="group.key">
