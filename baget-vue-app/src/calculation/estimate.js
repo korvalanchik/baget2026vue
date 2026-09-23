@@ -35,6 +35,7 @@ export const underframes = [
   [29720, "Під принт"],
 ];
 export const artworkTypes = [
+  ["EMBROIDERY", "Вишивка"],
   ["BLANK", "Чисте полотно"],
   ["WITH_IMAGE", "Полотно із зображенням"],
   ["PRINT", "Принт"],
@@ -49,6 +50,9 @@ export function newArtwork(id) {
   return {
     id,
     withFrame: true,
+    antiFrame: false,
+    includeUnderframeFasteners: false,
+    includeBackingHanger: false,
     artworkType: "NONE",
     canvasSource: "CUSTOMER",
     underframePartNo: "",
@@ -92,7 +96,7 @@ export function buildEstimate(artworks) {
   const items = artworks.flatMap((a, index) => {
     try {
       const product = {
-        productType: "FRAMED_ARTWORK",
+        productType: a.withFrame ? "FRAMED_ARTWORK" : "UNFRAMED_ARTWORK",
         widthMm: number(a.widthMm, "Ширина", 0.001, 100000),
         heightMm: number(a.heightMm, "Висота", 0.001, 100000),
         productQuantity: number(
@@ -112,7 +116,7 @@ export function buildEstimate(artworks) {
             )
           : null,
       };
-      if (a.withFrame) {
+      {
         for (const group of groups) {
           product[group.key] = a[group.key].map((s) => {
             if (!group.parts.some(([id]) => id === Number(s.partNo)))
@@ -153,9 +157,12 @@ export function buildEstimate(artworks) {
           )
             throw new Error("Розмір із паспарту перевищує 100000 мм.");
         }
+      }
+      if (a.withFrame || (a.includeBackingHanger && a.backings.length)) {
+        if (a.withFrame && Number(a.framePartNo) === 33190) throw new Error("Для виробу без рами вимкніть «Оформлення в раму».");
         const suspension = {
           hangerMode: a.hangerMode,
-          includePozzi: a.includePozzi,
+          includePozzi: a.withFrame && a.includePozzi,
         };
         if (!["AUTO", "MANUAL", "NONE"].includes(a.hangerMode))
           throw new Error("Оберіть режим підвісу.");
@@ -178,7 +185,7 @@ export function buildEstimate(artworks) {
             10000,
             true,
           );
-        if (a.includePozzi && a.pozziPerProduct !== "")
+        if (a.withFrame && a.includePozzi && a.pozziPerProduct !== "")
           suspension.pozziPerProduct = number(
             a.pozziPerProduct,
             "Кількість лапок",
@@ -190,9 +197,17 @@ export function buildEstimate(artworks) {
           throw new Error("Оберіть режим шнурка.");
         if (a.cordMode !== "AUTO")
           suspension.includeCord = a.cordMode === "YES";
+        if (!a.withFrame) {
+          if (suspension.hangerMode === 'MANUAL' && ![27580,14450].includes(suspension.hangerPartNo)) throw new Error('Без рами оберіть підвіс крокодил.');
+          suspension.includePozzi = false; delete suspension.pozziPerProduct; suspension.includeCord = false;
+        }
         product.suspension = suspension;
       }
-      const rows = a.withFrame
+      if (!a.withFrame && a.antiFrame) {
+        if (!a.glass.length || !a.backings.length) throw new Error('Для антирами потрібні скло/дзеркало та задник.');
+        product.antiFrame = true;
+      }
+      const rows = (a.withFrame || groups.some(g => product[g.key].length))
         ? [{ clientItemId: a.id, kind: "PRODUCT", product }]
         : [];
       const size = {
@@ -222,11 +237,17 @@ export function buildEstimate(artworks) {
       if (underframe && !underframes.some(([id]) => id === underframe))
         throw new Error("Оберіть підрамник зі списку.");
       if (a.mountingType !== "NONE" && a.artworkType === "NONE")
-        throw new Error("Для натяжки оберіть виріб: принт або полотно.");
+        throw new Error("Для натяжки оберіть виріб: вишивку, принт або полотно.");
       if (a.mountingType === "PLANE" && underframe)
         throw new Error("Для натяжки на площину виберіть «Без підрамника».");
       const canvas =
-        a.artworkType !== "NONE" && a.canvasSource === "STOCK" ? 27970 : null;
+        a.artworkType !== "EMBROIDERY" && a.artworkType !== "NONE" && a.canvasSource === "STOCK" ? 27970 : null;
+      if(a.artworkType === 'EMBROIDERY' && a.mountingType === 'PLANE' && !a.backings.length)
+        throw new Error('Для натяжки вишивки на задник виберіть ДВП або ПВХ у групі «Задник».');
+      if(a.withFrame && underframe && a.includeUnderframeFasteners) {
+        product.includeUnderframeFasteners = true;
+        product.underframePartNo = underframe;
+      }
       if (a.mountingType === "UNDERFRAME") {
         if (!underframe)
           throw new Error("Для натяжки на підрамник оберіть підрамник.");
@@ -256,7 +277,7 @@ export function buildEstimate(artworks) {
           rows.push({
             clientItemId: `${a.id}--mounting`,
             kind: "MOUNTING",
-            mounting: { ...size, mountingType: "PLANE" },
+            mounting: { ...size, mountingType: "PLANE", ...(a.artworkType === "EMBROIDERY" ? {canvasType:"EMBROIDERY"} : {}) },
           });
         if (canvas)
           rows.push({
@@ -272,7 +293,7 @@ export function buildEstimate(artworks) {
       }
       if (!rows.length)
         throw new Error(
-          "Оберіть раму, підрамник, полотно майстерні або натяжку.",
+          "Оберіть листовий матеріал, раму, підрамник, полотно майстерні або натяжку.",
         );
       return rows;
     } catch (error) {
@@ -289,7 +310,7 @@ export function buildEstimate(artworks) {
 export function sectionTitle(clientItemId, artworks) {
   const [id, suffix] = clientItemId.split("--");
   const index = artworks.findIndex((a) => a.id === id);
-  return `Виріб ${index + 1} · ${{ mounting: "Натяжка", underframe: "Підрамник", canvas: "Полотно" }[suffix] || "Оформлення в раму"}`;
+  return `Виріб ${index + 1} · ${{ mounting: "Натяжка", underframe: "Підрамник", canvas: "Полотно" }[suffix] || (artworks[index]?.withFrame ? "Оформлення в раму" : "Матеріали без рами")}`;
 }
 
 // Verify explicit choices so an older backend cannot silently ignore includeCord.

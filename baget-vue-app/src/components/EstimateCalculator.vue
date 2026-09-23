@@ -540,7 +540,8 @@ onBeforeUnmount(() => {
               :input-id="`${a.id}-frame`"
             />
           </div>
-          <div v-if="a.withFrame" class="estimate-groups">
+          <p v-if="!a.withFrame" class="estimate-muted">Скло, задник і паспарту можна замовити без рами. Крокодил для задника та кліпси антирами можна додати нижче. Шнурок, лапки та клей для рами не додаються.</p>
+          <div class="estimate-groups">
             <fieldset v-for="group in groups" :key="group.key">
               <legend>{{ group.label }}</legend>
               <p v-if="!a[group.key].length" class="estimate-muted">
@@ -593,7 +594,7 @@ onBeforeUnmount(() => {
               </button>
             </fieldset>
           </div>
-          <fieldset v-if="a.withFrame && a.mats.length">
+          <fieldset v-if="a.mats.length">
             <legend>Поля паспарту, мм</legend>
             <p class="estimate-muted">
               Для шару з найменшим отвором. Поля додаються до розміру роботи
@@ -612,7 +613,7 @@ onBeforeUnmount(() => {
               /></label>
             </div>
           </fieldset>
-          <p v-if="a.withFrame && a.widthMm && a.heightMm">
+          <p v-if="a.widthMm && a.heightMm">
             Зовнішній розмір матеріалів: <strong>{{ outerSize(a) }}</strong>
           </p>
           <fieldset>
@@ -649,7 +650,7 @@ onBeforeUnmount(() => {
                   <option value="UNDERFRAME">На підрамник</option>
                 </select></label
               >
-              <label v-if="a.artworkType !== 'NONE'"
+              <label v-if="a.artworkType !== 'NONE' && a.artworkType !== 'EMBROIDERY'"
                 >Матеріал<select v-model="a.canvasSource">
                   <option value="CUSTOMER">Виріб клієнта</option>
                   <option value="STOCK">Полотно майстерні</option>
@@ -661,19 +662,25 @@ onBeforeUnmount(() => {
               паспарту. При натяжці на підрамник його вартість враховується один
               раз разом із перемичками.
             </p>
+            <p v-if="a.artworkType === 'EMBROIDERY'" class="estimate-muted">Вишивка клієнта — без вартості полотна. Оплачуються вибрана основа й робота з натяжки. Для натяжки на площину виберіть задник.</p>
             <p v-if="a.artworkType === 'PRINT'" class="estimate-muted">
               «Принт» визначає спосіб розрахунку натяжки. Вартість друку в цей
               кошторис не входить.
             </p>
             <p
-              v-if="a.artworkType !== 'NONE' && a.canvasSource === 'STOCK'"
+              v-if="a.artworkType !== 'NONE' && a.artworkType !== 'EMBROIDERY' && a.canvasSource === 'STOCK'"
               class="estimate-muted"
             >
               Додається полотно майстерні з налаштованого серверного каталогу.
               При натяжці сервер враховує припуск.
             </p>
           </fieldset>
-          <fieldset v-if="a.withFrame">
+          <div class="estimate-grid">
+            <label v-if="!a.withFrame"><input v-model="a.antiFrame" type="checkbox" /> Антирама — кліпси (1 на 200 мм периметру, мінімум 4)</label>
+            <label v-if="!a.withFrame && a.backings.length"><input v-model="a.includeBackingHanger" type="checkbox" /> Додати крокодил на задник</label>
+            <label v-if="a.withFrame && a.underframePartNo"><input v-model="a.includeUnderframeFasteners" type="checkbox" /> Кріплення підрамника до багета (1 на 400 мм, мінімум 4)</label>
+          </div>
+          <fieldset v-if="a.withFrame || (a.includeBackingHanger && a.backings.length)">
             <legend>Кріплення</legend>
             <div class="estimate-grid">
               <label
@@ -686,7 +693,7 @@ onBeforeUnmount(() => {
               <label v-if="a.hangerMode === 'MANUAL'"
                 >Тип підвісу<select v-model="a.hangerPartNo" required>
                   <option value="" disabled>Оберіть</option>
-                  <option v-for="[id, name] in hangers" :key="id" :value="id">
+                  <option v-for="[id, name] in (a.withFrame ? hangers : hangers.filter(([id]) => [27580,14450].includes(id)))" :key="id" :value="id">
                     {{ name }}
                   </option>
                 </select></label
@@ -700,18 +707,18 @@ onBeforeUnmount(() => {
                   step="1"
                   placeholder="Автоматично"
               /></label>
-              <label
+              <label v-if="a.withFrame"
                 >Шнурок<select v-model="a.cordMode">
                   <option value="AUTO">Автоматично за підвісами</option>
                   <option value="YES">Додати шнурок</option>
                   <option value="NO">Без шнурка</option>
                 </select></label
               >
-              <label class="estimate-check"
+              <label v-if="a.withFrame" class="estimate-check"
                 ><input v-model="a.includePozzi" type="checkbox" /> Додати
                 лапки</label
               >
-              <label v-if="a.includePozzi"
+              <label v-if="a.withFrame && a.includePozzi"
                 >Лапок на виріб<input
                   v-model="a.pozziPerProduct"
                   type="number"

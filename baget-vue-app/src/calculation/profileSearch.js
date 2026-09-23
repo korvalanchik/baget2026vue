@@ -7,7 +7,7 @@ export function filterProfiles(profiles, query) {
   const term = normalize(query);
   return term
     ? profiles.filter((profile) =>
-        normalize(profile.description).includes(term),
+        Number(profile.partNo) !== 33190 && normalize(profile.description).includes(term),
       )
     : [];
 }
