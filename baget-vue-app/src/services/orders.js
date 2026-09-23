@@ -8,8 +8,9 @@ async function getData(response, fallback) {
 }
 function headers(token) { return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
 
-export async function loadOrderCatalog(token) {
-  const response = await fetch(`${apiOrigin}/api/parts/profillist`, { headers: headers(token) })
+export async function loadOrderCatalog(token, configuredOnly = false) {
+  const query = configuredOnly ? '?configuredOnly=true' : ''
+  const response = await fetch(`${apiOrigin}/api/parts/profillist${query}`, { headers: headers(token) })
   return getData(response, 'Не вдалося завантажити каталог багетів.')
 }
 export async function searchCustomers(token, prefix) {

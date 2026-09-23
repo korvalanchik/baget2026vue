@@ -286,7 +286,7 @@ async function loadCatalog() {
   catalogBusy.value = true;
   catalogError.value = "";
   try {
-    const catalog = await loadOrderCatalog(token);
+    const catalog = await loadOrderCatalog(token, true);
     if (token === props.session.token)
       profiles.value = catalog.profileParts || [];
   } catch (e) {
