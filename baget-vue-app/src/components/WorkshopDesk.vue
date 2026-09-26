@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
-import ProductionCard from './ProductionCard.vue'
+import ProductWorkshopCard from './ProductWorkshopCard.vue'
 import { canAccess } from '../services/auth.js'
 import { loadWorkshopOrders, loadWorkshopOrder, saveWorkshopOrder, workshopColumns, millimeters, urgency } from '../services/workshop.js'
 
@@ -23,8 +23,8 @@ const extra = ref(true)
 const dialog = ref(null)
 const discard = ref(false)
 const opening = ref(false)
-const isAdmin = computed(() => props.session.roles.includes('ROLE_ADMIN'))
-const scoped = computed(() => orders.value.filter(order => isAdmin.value || order.branchName === props.session.branch.name))
+const canChooseBranch = computed(() => props.session.roles.some(role => ['ROLE_ADMIN', 'ROLE_FOREMAN'].includes(role)))
+const scoped = computed(() => orders.value.filter(order => canChooseBranch.value || order.branchName === props.session.branch.name))
 const branches = computed(() => [...new Set(scoped.value.map(order => order.branchName).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'uk')))
 const filtered = computed(() => {
   const query = search.value.trim().toLocaleLowerCase('uk-UA')
@@ -114,7 +114,7 @@ onMounted(refresh)
     <div class="workshop-content">
       <div class="workshop-tools">
         <label class="workshop-search">Пошук<input v-model="search" type="search" placeholder="№ замовлення, клієнт або телефон"></label>
-        <label v-if="isAdmin">Філія<select v-model="branch"><option value="">Усі філії</option><option v-for="name in branches" :key="name">{{ name }}</option></select></label>
+        <label v-if="canChooseBranch">Філія<select v-model="branch"><option value="">Усі філії</option><option v-for="name in branches" :key="name">{{ name }}</option></select></label>
         <label>Спочатку<select v-model="sort"><option value="deadline">Найближчий термін</option><option value="oldest">Найстаріші замовлення</option></select></label>
         <label class="workshop-check"><input v-model="urgentOnly" type="checkbox"> Потребують уваги</label>
       </div>
@@ -144,7 +144,7 @@ onMounted(refresh)
       <form v-if="selected && draft" @submit.prevent="save">
         <header><div><p>Картка виробництва</p><h2 id="workshop-title">Замовлення № {{ selected.orderNo }}</h2></div><button type="button" class="icon-button" aria-label="Закрити" :disabled="saving" @click="close()">×</button></header>
         <div class="workshop-details"><span>Філія<strong>{{ selected.branchName || '—' }}</strong></span><span>Клієнт<strong>{{ selected.company || '—' }}</strong></span><span>Прийнято<strong>{{ formatDate(selected.saleDate) }}</strong></span><span>Термін<strong>{{ formatDate(selected.shipDate) }}</strong></span></div>
-        <ProductionCard v-if="selected.calculationRevision" :session="session" :order-no="Number(selected.orderNo)" @dirty="productionDirty = $event" @busy="saving = $event" @changed="productionChanged" />
+        <ProductWorkshopCard v-if="selected.calculationRevision" :session="session" :order-no="Number(selected.orderNo)" @dirty="productionDirty = $event" @busy="saving = $event" @changed="productionChanged" />
         <template v-else>
         <fieldset :disabled="saving || !editable"><legend>Статус виробництва</legend><div class="workshop-statuses"><label v-for="status in [{ id: 1, name: 'Треба зробити' }, { id: 2, name: 'В роботі' }, { id: 3, name: 'Зроблено' }, ...(Number(selected.statusOrder) === 6 ? [{ id: 6, name: 'Пораховано' }] : [])]" :key="status.id"><input v-model="draft.statusOrder" type="radio" :value="status.id">{{ status.name }}</label></div></fieldset>
         <h3>Позиції замовлення <small>Розміри в мм</small></h3>

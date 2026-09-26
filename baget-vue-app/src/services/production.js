@@ -10,3 +10,4 @@ async function request(token, path, method = 'GET', payload) {
 }
 export const production = (token, id, suffix = '', method = 'GET', payload) => request(token, `/api/calculated-orders/${id}/production${suffix}`, method, payload)
 export const issueProductionInvoice = (token, id) => request(token, `/api/orders/${id}/issue-invoice`, 'POST', { invoice: { reference: 'За підтвердженою фактичною витратою' } })
+export const productWorkshop = (token, id, suffix = '', method = 'GET', payload) => request(token, `/api/calculated-orders/${id}/workshop${suffix}`, method, payload)
