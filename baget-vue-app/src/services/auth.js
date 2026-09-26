@@ -50,6 +50,7 @@ function permissionsFor(roles) {
   if (roles.some((role) => branchOrderRoles.includes(role)))
     permissions.push("orders:create", "orders:read", "customers:read");
   if (roles.includes("ROLE_FOREMAN")) permissions.push("workshop:read");
+  if (roles.some(role => ["ROLE_FOREMAN", "ROLE_WAREHOUSE"].includes(role))) permissions.push("materials:read");
   if (roles.some((role) => accountantRoles.includes(role)))
     permissions.push("finance:read", "customers:finance:read");
   return permissions;

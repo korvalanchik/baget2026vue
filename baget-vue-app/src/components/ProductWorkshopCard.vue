@@ -1,4 +1,5 @@
 <script setup>
+import ProductTracking from './ProductTracking.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { productWorkshop } from '../services/production.js'
 import { artworkTypes } from '../calculation/estimate.js'
@@ -97,6 +98,7 @@ onMounted(reload)
           <button v-if="p.state === 'IN_PROGRESS' && !p.confirmed" type="button" :disabled="busy || dirty || !p.widthMm || !p.heightMm || p.lines.some(l => l.actual === '')" @click="finish(p)">Завершити виріб і підтвердити витрати</button>
         </div>
         <p v-if="p.confirmed"><strong>Підтверджена вартість: {{ money(p.total) }} грн.</strong> Виробничі дані зафіксовано.</p>
+        <ProductTracking v-if="p.confirmed" :session="session" :product-id="p.id" />
         <details><summary>Історія дій ({{ p.events.length }})</summary>
           <p v-if="!p.events.length">Дій у новій майстерні ще немає.</p>
           <ol><li v-for="event in p.events" :key="event.revision"><strong>{{ actions[event.action] || event.action }}</strong> · {{ event.actor }} · {{ date(event.at) }}<p>{{ event.note }}</p>

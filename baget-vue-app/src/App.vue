@@ -1,5 +1,9 @@
 <script setup>
 import { computed, ref } from "vue";
+import MaterialsDesk from "./components/MaterialsDesk.vue";
+import WarehouseDesk from "./components/WarehouseDesk.vue";
+import ProductTracking from "./components/ProductTracking.vue";
+const scannedProduct = new URLSearchParams(window.location.search).get('product') || '';
 import LoginPage from "./components/LoginPage.vue";
 import OrderForm from "./components/OrderForm.vue";
 import EstimateCalculator from "./components/EstimateCalculator.vue";
@@ -9,7 +13,7 @@ import WorkshopDesk from "./components/WorkshopDesk.vue";
 import { canAccess, clearSession, restoreSession } from "./services/auth.js";
 
 const session = ref(restoreSession());
-const activeSection = ref(canAccess(session.value, 'orders:create') ? 'new-order' : canAccess(session.value, 'workshop:read') ? 'workshop' : 'scanning');
+const activeSection = ref(scannedProduct ? 'scanning' : canAccess(session.value, 'orders:create') ? 'new-order' : canAccess(session.value, 'workshop:read') ? 'workshop' : 'scanning');
 const navigation = [
   {
     id: "new-order",
@@ -26,6 +30,7 @@ const navigation = [
   },
   { id: "customers", icon: "♙", label: "Клієнти та інвойси", access: "customers:finance:read" },
   { id: "workshop", icon: "✦", label: "Майстерня", access: "workshop:read" },
+  { id: "warehouse", icon: "▣", label: "Готові вироби", access: "materials:read" },
   { id: "materials", icon: "▱", label: "Матеріали", access: "materials:read" },
   { id: "scanning", icon: "↗", label: "Сканування", access: "scanning:read" },
   { id: "finance", icon: "₴", label: "Фінанси", access: "finance:read" },
@@ -35,7 +40,7 @@ const allowedNavigation = computed(() =>
 );
 function completeLogin(newSession) {
   session.value = newSession;
-  activeSection.value = canAccess(newSession, "orders:create")
+  activeSection.value = scannedProduct ? "scanning" : canAccess(newSession, "orders:create")
     ? "new-order"
     : allowedNavigation.value[0]?.id;
 }
@@ -117,6 +122,9 @@ function signOut() {
       </section>
       <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" />
       <WorkshopDesk v-else-if="activeSection === 'workshop'" :session="session" @open-finance="activeSection = 'customers'" />
+      <MaterialsDesk v-else-if="activeSection === 'materials'" :session="session" />
+      <WarehouseDesk v-else-if="activeSection === 'warehouse'" :session="session" />
+      <section v-else-if="activeSection === 'scanning'" style="padding:24px"><h1>Сканування виробу</h1><ProductTracking :session="session" :initial-token="scannedProduct" /></section>
       <section v-else class="placeholder-page">
         <p>
           Розділ «{{
