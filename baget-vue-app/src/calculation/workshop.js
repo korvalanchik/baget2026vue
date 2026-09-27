@@ -5,10 +5,10 @@ export const productStates = {
   PAUSED: 'Призупинено', COMPLETED: 'Виготовлено', STOPPED: 'Виконання припинено',
 }
 export function productEditable(product, canEdit) {
-  return canEdit && !product.confirmed && ['ACCEPTED', 'IN_PROGRESS'].includes(product.state)
+  return canEdit && !product.confirmed && !product.rework?.active && ['ACCEPTED', 'IN_PROGRESS'].includes(product.state)
 }
 export function productActions(product) {
-  if (product.confirmed) return []
+  if (product.confirmed || product.rework?.active) return []
   const choices = {
     WAITING: [['ACCEPTED', 'Прийняти від філії']],
     ACCEPTED: [['IN_PROGRESS', 'Почати роботу'], ['PAUSED', 'Призупинити']],

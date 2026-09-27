@@ -30,7 +30,7 @@ const navigation = [
     access: "orders:read",
   },
   { id: "customers", icon: "♙", label: "Клієнти та інвойси", access: "customers:finance:read" },
-  { id: "workshop", icon: "✦", label: "Майстерня", access: "workshop:read" },
+  { id: "workshop", icon: "✦", label: "Майстерня", access: "workshop:read" }                                                      ,
   { id: "warehouse", icon: "▣", label: "Готові вироби", access: "materials:read" },
   { id: "materials", icon: "▱", label: "Матеріали", access: "materials:read" },
   { id: "scanning", icon: "↗", label: "Сканування", access: "scanning:read" },
