@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from "vue";
+import AccountantDesk from "./components/AccountantDesk.vue";
 import MaterialsDesk from "./components/MaterialsDesk.vue";
 import WarehouseDesk from "./components/WarehouseDesk.vue";
 import ProductTracking from "./components/ProductTracking.vue";
@@ -33,6 +34,7 @@ const navigation = [
   { id: "warehouse", icon: "▣", label: "Готові вироби", access: "materials:read" },
   { id: "materials", icon: "▱", label: "Матеріали", access: "materials:read" },
   { id: "scanning", icon: "↗", label: "Сканування", access: "scanning:read" },
+  { id: "accountant", icon: "▧", label: "Рахунки за виробами", access: "finance:read" },
   { id: "finance", icon: "₴", label: "Фінанси", access: "finance:read" },
 ];
 const allowedNavigation = computed(() =>
@@ -122,6 +124,7 @@ function signOut() {
       </section>
       <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" />
       <WorkshopDesk v-else-if="activeSection === 'workshop'" :session="session" @open-finance="activeSection = 'customers'" />
+      <AccountantDesk v-else-if="activeSection === 'accountant'" :session="session" />
       <MaterialsDesk v-else-if="activeSection === 'materials'" :session="session" />
       <WarehouseDesk v-else-if="activeSection === 'warehouse'" :session="session" />
       <section v-else-if="activeSection === 'scanning'" style="padding:24px"><h1>Сканування виробу</h1><ProductTracking :session="session" :initial-token="scannedProduct" /></section>
