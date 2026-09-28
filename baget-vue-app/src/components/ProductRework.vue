@@ -55,7 +55,7 @@ function search() { return run(async () => { results.value = await productWorksh
    <template v-else-if="canEdit">
     <p v-if="!canOpenRework(product)">Спочатку передайте виріб до майстерні через QR-картку та підтвердьте його приймання майстром.</p>
     <fieldset v-else :disabled="busy || disabled"><legend>Відкрити нову ревізію</legend>
-     <label>Підстава<select v-model="mode"><option v-for="(label, value) in reworkModes" :key="value" :value="value">{{ label }}</option></select></label>
+     <p>Доопрацювання — виправлення за рахунок майстерні. Зміни за бажанням клієнта після початку роботи оформлюйте новим замовленням.</p>
      <label>Причина<textarea v-model="reason" maxlength="2000"></textarea></label><button type="button" @click="open">Відкрити доопрацювання</button>
     </fieldset>
    </template>

@@ -1,5 +1,6 @@
 <script setup>
 import ProductTracking from './ProductTracking.vue'
+import { branchDimensions, historyActualLabel } from '../calculation/workshopHistory.js'
 import ProductRework from './ProductRework.vue'
 import MeasurementResult from './MeasurementResult.vue'
 import { measurementRequest, measurementStale, applyMeasurement } from '../calculation/measurement.js'
@@ -91,8 +92,14 @@ onMounted(reload)
       <article v-for="(p, index) in products" :key="p.id" class="product">
         <header><h4>Виріб {{ index + 1 }} · {{ artworkNames[form(p).artworkType] || 'Оформлення' }}</h4><strong>{{ productStates[p.state] || p.state }}</strong></header>
         <p>Майстер: {{ p.master || 'ще не прийнято' }} · Прийнято: {{ date(p.acceptedAt) }}<span v-if="p.completedAt"> · Завершено: {{ date(p.completedAt) }}</span></p>
+        <section class="branch-dimensions" aria-label="Розміри від філії">
+          <strong>Розміри від філії · робота без полів паспарту</strong>
+          <p v-for="(size, si) in branchDimensions(p.configuration)" :key="si"><span v-if="branchDimensions(p.configuration).length > 1">{{ size.label }}: </span><b>{{ size.widthMm ?? '—' }} × {{ size.heightMm ?? '—' }} мм</b> · Кількість: {{ size.quantity ?? 'не вказана' }}</p>
+          <p v-if="!branchDimensions(p.configuration).length">Розміри у збереженій конфігурації відсутні.</p>
+          <small>Передано філією. Обмір майстра вводиться окремо нижче.</small>
+        </section>
         <details><summary>Погоджене оформлення</summary>
-          <p>Розмір: {{ form(p).widthMm || '—' }} × {{ form(p).heightMm || '—' }} мм · Кількість: {{ form(p).productQuantity || 1 }} · {{ mountingNames[form(p).mountingType] || 'Без натяжки' }}</p>
+          <p>{{ mountingNames[form(p).mountingType] || 'Спосіб натяжки не вказаний у формі' }}</p>
           <p>{{ form(p).withFrame ? 'З рамою' : 'Без рами' }}<span v-if="form(p).antiFrame"> · Антирама</span></p>
           <p v-if="form(p).mats?.length">Поля паспарту, мм: ліве {{ form(p).margins?.leftMm || 0 }}, праве {{ form(p).margins?.rightMm || 0 }}, верхнє {{ form(p).margins?.topMm || 0 }}, нижнє {{ form(p).margins?.bottomMm || 0 }}.</p>
           <p>Матеріали, роботи та планові кількості наведені в таблиці нижче.</p>
@@ -126,7 +133,13 @@ onMounted(reload)
         <details><summary>Історія дій ({{ p.events.length }})</summary>
           <p v-if="!p.events.length">Дій у новій майстерні ще немає.</p>
           <ol><li v-for="event in p.events" :key="event.revision"><strong>{{ actions[event.action] || event.action }}</strong> · {{ event.actor }} · {{ date(event.at) }}<p>{{ event.note }}</p>
-            <details v-if="event.snapshot?.lines?.length"><summary>Обмір і витрати на цей момент</summary><p>{{ event.snapshot.widthMm ?? '—' }} × {{ event.snapshot.heightMm ?? '—' }} мм</p><ul><li v-for="line in event.snapshot.lines" :key="line.itemNo">{{ line.description }}: {{ line.actual ?? '—' }} {{ units[line.unit] || line.unit }}</li></ul></details>
+            <details v-if="event.snapshot?.lines?.length"><summary>План і збережений обмір на момент події</summary>
+              <p v-for="(size, si) in branchDimensions(event.snapshot.configuration)" :key="si">Від філії<span v-if="branchDimensions(event.snapshot.configuration).length > 1"> ({{ size.label }})</span>: {{ size.widthMm ?? '—' }} × {{ size.heightMm ?? '—' }} мм · Кількість: {{ size.quantity ?? 'не вказана' }}</p>
+              <p v-if="event.snapshot.widthMm != null && event.snapshot.heightMm != null">Обмір майстра: {{ event.snapshot.widthMm }} × {{ event.snapshot.heightMm }} мм</p><p v-else>Обмір майстра на момент цієї події ще не збережений.</p>
+              <ul><li v-for="line in event.snapshot.lines" :key="line.itemNo"><strong>{{ line.description }}</strong>: план — {{ line.planned ?? 'не вказано' }} {{ units[line.unit] || line.unit }}; {{ historyActualLabel(event.action) }} — <template v-if="line.actual != null">{{ line.actual }} {{ units[line.unit] || line.unit }}</template><template v-else>ще не внесена</template>.</li></ul>
+              <p v-if="event.action === 'COMPLETE'">Матеріали списано при підтвердженні завершення.</p>
+              <p v-else-if="!event.action.startsWith('REWORK_')">Збереження обміру та приймання самі по собі не списують матеріали зі складу.</p>
+            </details>
             <details v-if="event.snapshot?.additionalLines?.length"><summary>Додаткові витрати на цей момент</summary><ul><li v-for="(line, li) in event.snapshot.additionalLines" :key="li">{{ line.description }}: {{ line.quantity }} {{ units[line.unit] || line.unit }}</li></ul></details>
           </li></ol>
         </details>
@@ -135,5 +148,6 @@ onMounted(reload)
   </section>
 </template>
 <style scoped>
+.branch-dimensions{background:#eef5fa;border:1px solid #cbdde9;border-radius:8px;padding:12px;margin:12px 0}.branch-dimensions p{margin:6px 0}
 .product-workshop{font-size:13px}.product-workshop header,.actions{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.product{border:1px solid #dfe5eb;border-radius:10px;padding:16px;margin:18px 0}.product h4{margin:0}.product p{line-height:1.6;color:#526278}.measurements{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}label{display:grid;gap:6px}.note textarea{width:100%;box-sizing:border-box;resize:vertical}input,textarea,button{font:inherit;padding:8px;border:1px solid #cbd5df;border-radius:6px}input{width:105px}button{background:#f5f7fa;cursor:pointer}button:disabled,input:disabled{opacity:.6;cursor:default}.actions{justify-content:flex-start;margin:14px 0}.table-wrap{overflow:auto;margin:14px 0}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:8px;border-bottom:1px solid #e2e8ee}small{display:block;color:#69798a}details{margin:12px 0}summary{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto}[role=alert]{color:#a32929}[role=status]{color:#22663b}.notice{color:#97601c}li{margin-bottom:10px}input:focus-visible,button:focus-visible,textarea:focus-visible{outline:2px solid #cf943f;outline-offset:2px}
 </style>

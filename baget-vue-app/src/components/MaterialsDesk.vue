@@ -1,6 +1,8 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { warehouse } from '../services/warehouse.js'
+import ProcurementDesk from './ProcurementDesk.vue'
+const tab = ref('procurement')
 const props = defineProps({ session: { type: Object, required: true } })
 const rows = ref([]), selected = ref(null), q = ref(''), page = ref(0), shortage = ref(false), busy = ref(false), error = ref(''), message = ref('')
 const action = ref('RECEIPT'), quantity = ref(''), note = ref('')
@@ -30,7 +32,9 @@ function state(r, status) { return run(async () => { selected.value = await ware
 onMounted(() => refresh())
 </script>
 <template>
-  <section class="materials">
+  <nav class="material-tabs"><button :class="{ active: tab === 'procurement' }" @click="tab = 'procurement'">Потреби та постачання</button><button :class="{ active: tab === 'stock' }" @click="tab = 'stock'; refresh()">Залишки та інвентаризація</button></nav>
+  <ProcurementDesk v-show="tab === 'procurement'" :session="session" :active="tab === 'procurement'" />
+  <section v-show="tab === 'stock'" class="materials">
     <h1>Матеріали</h1><p>Спільний склад майстерні. Резерв формується із замовлень; нестача не скасовує замовлення.</p>
     <div class="tools"><input v-model="q" placeholder="Артикул або назва" @keydown.enter="refresh(true)"><label><input v-model="shortage" type="checkbox" :disabled="busy" @change="refresh(true)"> Тільки нестача</label><button :disabled="busy" @click="refresh(true)">Знайти / оновити</button></div>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="message" role="status">{{ message }}</p>
@@ -39,11 +43,11 @@ onMounted(() => refresh())
     <div class="tools"><button :disabled="busy || page === 0" @click="turn(-1)">Назад</button><span>Сторінка {{ page + 1 }}</span><button :disabled="busy || rows.length < 100" @click="turn(1)">Далі</button></div>
     <article v-if="selected">
       <h2>{{ selected.description }}</h2><p>Фізичний залишок: {{ selected.onHand ?? 'невідомий' }} {{ units[selected.unit] }}</p>
-      <div class="tools"><label>Операція<select v-model="action" :disabled="busy"><option value="RECEIPT">Приймання матеріалу</option><option value="COUNT">Інвентаризація позиції</option><option value="REQUEST">Заявка на матеріал</option></select></label><label>{{ action === 'COUNT' ? 'Порахований залишок' : 'Кількість' }}<input v-model="quantity" type="number" min="0" :step="selected.unit === 'PIECE' ? 1 : 0.000001" :disabled="busy"></label></div>
+      <div class="tools"><label>Операція<select v-model="action" :disabled="busy"><option value="RECEIPT">Прихід без замовлення постачальнику</option><option value="COUNT">Інвентаризація позиції</option><option value="REQUEST">Заявка на матеріал</option></select></label><label>{{ action === 'COUNT' ? 'Порахований залишок' : 'Кількість' }}<input v-model="quantity" type="number" min="0" :step="selected.unit === 'PIECE' ? 1 : 0.000001" :disabled="busy"></label></div>
       <p v-if="action === 'COUNT'">Вкажіть повний фактичний залишок цієї позиції. Значення нижче чинного резерву потребує окремого узгодження.</p>
       <label>Документ / примітка<textarea v-model="note" maxlength="1000" :disabled="busy"></textarea></label><button :disabled="busy" @click="submit">Зберегти операцію</button>
       <h3>Активні резерви</h3><p v-if="!selected.reservations.length">Резервів немає.</p><ul><li v-for="(r, i) in selected.reservations" :key="i">Замовлення № {{ r.orderNo }}, виріб {{ r.productId }}: потрібно {{ r.demand }}, зарезервовано {{ r.reserved }}.</li></ul>
-      <h3>Заявки</h3><p>Закриття заявки не оприбутковує матеріал. Приймання оформлюється окремою операцією з номером документа.</p>
+      <h3>Попередні заявки</h3><p>Для нового замовлення постачальнику та часткового приходу використовуйте вкладку «Потреби та постачання».</p><p>Закриття заявки не оприбутковує матеріал. Приймання оформлюється окремою операцією з номером документа.</p>
       <div v-for="r in selected.requests" :key="r.id" class="request"><p>№ {{ r.id }} · {{ r.quantity }} {{ units[selected.unit] }} · {{ states[r.status] }} · {{ r.actor }} · {{ r.note }}</p><button v-if="r.status === 'OPEN'" :disabled="busy" @click="state(r, 'ORDERED')">Замовлено</button><button v-if="r.status === 'ORDERED'" :disabled="busy" @click="state(r, 'CLOSED')">Заявку виконано</button><button v-if="['OPEN','ORDERED'].includes(r.status)" :disabled="busy" @click="state(r, 'CANCELLED')">Скасувати заявку</button></div>
       <details><summary>Історія станів заявок (останні 100)</summary><p v-for="(e, i) in selected.requestEvents" :key="i">{{ e.createdAt }} · {{ e.actor }} · заявка № {{ e.requestId }}: {{ states[e.status] }}</p></details>
       <details><summary>Приймання та інвентаризації (останні 100)</summary><p v-for="(e, i) in selected.history" :key="i">{{ e.createdAt }} · {{ e.actor }} · {{ e.operation === 'RECEIPT' ? 'Приймання' : 'Інвентаризація' }}: {{ e.stockBefore ?? 'невідомо' }} → {{ e.stockAfter }}. {{ e.note }}</p></details>
@@ -52,5 +56,6 @@ onMounted(() => refresh())
   </section>
 </template>
 <style scoped>
+.material-tabs{display:flex;gap:12px;padding:20px 24px;flex-wrap:wrap}.material-tabs .active{background:#e5f1fb;border-color:#6599ba}
 .materials{padding:24px}.tools{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0}label{display:grid;gap:6px}input,select,textarea,button{font:inherit;padding:9px;border:1px solid #ccd5dd;border-radius:6px}button{cursor:pointer}button:disabled{opacity:.5}table{border-collapse:collapse;width:100%}.table{overflow:auto}th,td{text-align:left;padding:10px;border-bottom:1px solid #ddd}article{margin-top:24px;padding:20px;border:1px solid #ddd;border-radius:10px}textarea{max-width:650px;margin-bottom:12px}details{margin:15px 0}[role=alert]{color:#a22}[role=status]{color:#276039}.request{border-bottom:1px solid #ddd;padding:10px 0}.request button{margin-right:8px}
 </style>

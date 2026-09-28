@@ -4,8 +4,8 @@ import { warehouse, locations, trackingToken } from '../services/warehouse.js'
 const props = defineProps({ session: { type: Object, required: true }, productId: { type: Number, default: null }, initialToken: { type: String, default: '' }, disabled: Boolean })
 const emit = defineEmits(['transferred'])
 const data = ref(null), input = ref(props.initialToken), error = ref(''), busy = ref(false), label = ref(null), note = ref('')
-async function run(fn) { if (busy.value || props.disabled) return; busy.value = true; error.value = ''; try { await fn() } catch (e) { error.value = e.message } finally { busy.value = false } }
-function load() { return run(async () => { label.value = null; data.value = null; data.value = await warehouse(props.session.token, props.productId ? `/products/by-id/${props.productId}` : `/products/${trackingToken(input.value)}`) }) }
+async function run(fn, readOnly = false) { if (busy.value || (!readOnly && props.disabled)) return; busy.value = true; error.value = ''; try { await fn() } catch (e) { error.value = e.message } finally { busy.value = false } }
+function load() { return run(async () => { label.value = null; data.value = null; data.value = await warehouse(props.session.token, props.productId ? `/products/by-id/${props.productId}` : `/products/${trackingToken(input.value)}`) }, true) }
 function move(accept, destination) { return run(async () => { data.value = await warehouse(props.session.token, `/products/${data.value.trackingId}/${accept ? 'accept' : 'send'}`, { expectedRevision: data.value.revision, destination, note: note.value }); note.value = ''; emit('transferred') }) }
 function cancelTransfer() { return run(async () => {
   if (!note.value.trim()) throw new Error('Вкажіть причину відкликання в примітці.')
@@ -23,7 +23,10 @@ onMounted(() => { if (props.productId || input.value) load() })
 </script>
 <template>
   <section class="tracking">
-    <div v-if="!productId" class="actions"><label>QR або посилання виробу<input v-model="input" placeholder="Відскануйте сканером або вставте посилання" @keydown.enter.prevent="load"></label><button type="button" :disabled="busy || disabled" @click="load">Відкрити</button></div>
+    <h4>Переміщення готового виробу</h4>
+    <p v-if="busy" role="status">Завантаження / виконання операції…</p>
+    <div v-if="productId && !data && !busy" class="actions"><span>Дані переміщення не завантажено.</span><button type="button" @click="load">Завантажити дані передачі</button></div>
+    <div v-if="!productId" class="actions"><label>QR або посилання виробу<input v-model="input" placeholder="Відскануйте сканером або вставте посилання" @keydown.enter.prevent="load"></label><button type="button" :disabled="busy" @click="load">Відкрити</button></div>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="data">
       <h4>Замовлення № {{ data.orderNo }} · {{ data.productName }}</h4>
@@ -31,7 +34,7 @@ onMounted(() => { if (props.productId || input.value) load() })
       <p>Місце: <strong>{{ locations[data.location] }}</strong><span v-if="data.pending"> → Очікує приймання: {{ locations[data.pending] }} (передав {{ data.transferActor }})</span></p>
       <label>Примітка до передачі<input v-model="note" maxlength="1000" :disabled="busy || disabled"></label>
       <div class="actions">
-        <button type="button" :disabled="busy || disabled" @click="load">Оновити</button>
+        <button type="button" :disabled="busy" @click="load">Оновити</button>
         <template v-if="data.state === 'COMPLETED'">
           <button v-if="data.canCancel" type="button" :disabled="busy || disabled" @click="cancelTransfer">Відкликати передачу</button>
           <button type="button" :disabled="busy || disabled" @click="printLabel">Етикетка з QR</button>
