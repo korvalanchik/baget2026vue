@@ -87,6 +87,7 @@ function receive() { return run(async () => {
   setDocument(result); await loadNeeds(); await loadOrders(); message.value = 'Прихід проведено. Резерви перераховано.'
 }) }
 onMounted(() => run(async () => { vendors.value = await api('/vendors'); await loadNeeds(); await loadOrders() }))
+defineExpose({ open })
 </script>
 <template>
   <section class="procurement">
@@ -101,7 +102,7 @@ onMounted(() => run(async () => { vendors.value = await api('/vendors'); await l
         <dl><div><dt>На складі</dt><dd>{{ fmt(m.onHand) }}</dd></div><div><dt>Резерв / вільно</dt><dd>{{ fmt(m.reserved) }} / {{ fmt(m.free) }}</dd></div><div><dt>Потрібно для робіт</dt><dd>{{ fmt(m.demand) }}</dd></div><div><dt>Нестача зараз</dt><dd>{{ fmt(m.shortage) }}</dd></div><div><dt>Очікуємо</dt><dd>{{ fmt(m.incoming) }}</dd></div><div><dt>Мінімум / бажаний запас</dt><dd>{{ fmt(m.minimum) }} / {{ fmt(m.target) }}</dd></div><div><dt>До закупівлі</dt><dd><strong>{{ fmt(m.recommended) }}</strong></dd></div></dl>
         <p v-if="m.expectedDate">Найближча поставка: {{ m.expectedDate }}</p><p v-if="Number(m.overdue) > 0" class="warning">Прострочена поставка: {{ fmt(m.overdue) }}. Уточніть дату у постачальника перед повторною закупівлею.</p>
         <p v-if="Number(m.legacyOrdered) > 0" class="warning">Старі заявки «Замовлено»: {{ fmt(m.legacyOrdered) }}. Вони не включені в очікувані поставки. Звірте їх перед створенням нового замовлення.</p>
-        <button :disabled="busy || !stockUnits[m.unit]" @click="add(m)">Додати до чернетки</button>
+        <p v-if="Number(m.frameProfile) === 1">Активних філій зі зразком: {{ m.activeBranches }}. {{ m.replenishStock ? 'Поповнення запасу увімкнене.' : 'Лише забезпечення замовлень, без поповнення запасу.' }}</p><p v-if="m.purchaseBlocked" class="warning">Закупівлю заборонено або профіль знято з виробництва. Потреба до узгодження: {{ fmt(m.requiredPurchase) }} {{ stockUnits[m.unit] }}. Перевірте заміну.</p><button :disabled="busy || !stockUnits[m.unit] || m.purchaseBlocked" @click="add(m)">Додати до чернетки</button>
       </article>
     </div>
     <p v-if="!rows.length">Матеріалів за цими умовами не знайдено.</p><div class="tools"><button :disabled="busy || page === 0" @click="turn(-1)">Назад</button><span>{{ page + 1 }}</span><button :disabled="busy || rows.length < 100" @click="turn(1)">Далі</button></div>
