@@ -29,7 +29,7 @@ const navigation = [
     badge: "12",
     access: "orders:read",
   },
-  { id: "customers", icon: "♙", label: "Клієнти та інвойси", access: "customers:finance:read" },
+  { id: "customers", icon: "♙", label: "Клієнти CRM", access: "customers:crm:read" },
   { id: "workshop", icon: "✦", label: "Майстерня", access: "workshop:read" }                                                      ,
   { id: "warehouse", icon: "▣", label: "Готові вироби", access: "materials:read" },
   { id: "materials", icon: "▱", label: "Матеріали", access: "materials:read" },

@@ -26,6 +26,7 @@ const adminPermissions = [
   "orders:read",
   "customers:read",
   "customers:finance:read",
+  "customers:crm:read",
   "workshop:read",
   "materials:read",
   "scanning:read",
@@ -48,11 +49,11 @@ function permissionsFor(roles) {
   // Сканування не прив'язане до прайсу чи конкретної філії.
   const permissions = ["scanning:read"];
   if (roles.some((role) => branchOrderRoles.includes(role)))
-    permissions.push("orders:create", "orders:read", "customers:read");
+    permissions.push("orders:create", "orders:read", "customers:read", "customers:crm:read");
   if (roles.includes("ROLE_FOREMAN")) permissions.push("workshop:read");
   if (roles.some(role => ["ROLE_FOREMAN", "ROLE_WAREHOUSE"].includes(role))) permissions.push("materials:read");
   if (roles.some((role) => accountantRoles.includes(role)))
-    permissions.push("finance:read", "customers:finance:read");
+    permissions.push("finance:read", "customers:finance:read", "customers:crm:read");
   return permissions;
 }
 async function responseData(response) {
