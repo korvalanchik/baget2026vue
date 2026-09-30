@@ -1,4 +1,8 @@
 <script setup>
+import CustomerFinancePanel from './CustomerFinancePanel.vue'
+import { canAcceptCustomerPayment } from '../services/customerPayments.js'
+
+import { newRequestKey } from '../services/requestKey.js'
 import {
   computed,
   onBeforeUnmount,
@@ -51,7 +55,7 @@ const savedOrder = ref(null);
 const savedDirty = ref(false);
 const openNumber = ref("");
 const orderMessage = ref("");
-let requestKey = crypto.randomUUID();
+let requestKey = newRequestKey();
 let restoring = false;
 let customerSearchGeneration = 0;
 watch(
@@ -63,7 +67,7 @@ watch(
 );
 function changedDraft() {
   if (restoring) return;
-  requestKey = crypto.randomUUID();
+  requestKey = newRequestKey();
   if (savedOrder.value) savedDirty.value = true;
   orderMessage.value = "";
 }
@@ -169,7 +173,7 @@ async function openOrder() {
       await calculatedOrder(props.session.token, `/${openNumber.value}`),
       true,
     );
-    requestKey = crypto.randomUUID();
+    requestKey = newRequestKey();
     orderMessage.value = "Замовлення відкрито.";
   } catch (e) {
     error.value = e.message;
@@ -354,7 +358,7 @@ function reset() {
     notice: "",
     dueDate: "",
   });
-  requestKey = crypto.randomUUID();
+  requestKey = newRequestKey();
   openNumber.value = "";
   orderMessage.value = "";
   artworks.value = [newArtwork(`art-${nextId++}`)];
@@ -770,6 +774,7 @@ onBeforeUnmount(() => {
       <p v-if="error" role="alert" class="form-message">{{ error }}</p>
     </form>
     <p v-if="orderMessage" role="status">{{ orderMessage }}</p>
+    <CustomerFinancePanel v-if="savedOrder && canAcceptCustomerPayment(session)" :key="savedOrder.orderNo" :session="session" :order-no="Number(savedOrder.orderNo)" />
     <section v-if="savedOrder" class="form-card">
       <h2>
         Замовлення №{{ savedOrder.orderNo }} · {{ money(savedOrder.total) }}

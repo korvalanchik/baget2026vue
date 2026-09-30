@@ -1,4 +1,5 @@
 <script setup>
+import { newRequestKey } from '../services/requestKey.js'
 import { onMounted, ref, watch } from 'vue'
 import { warehouse } from '../services/warehouse.js'
 import { supplierStates, stockUnits, stockQuantity, draftPayload, receiptPayload, localDate, supplierCsv } from '../calculation/procurement.js'
@@ -42,7 +43,7 @@ function editDocument() {
 function saveDraft() { return run(async () => {
   const payload = draftPayload(draft.value, 'pending')
   const signature = JSON.stringify(payload)
-  if (!createRetry || createRetry.signature !== signature) createRetry = { signature, key: crypto.randomUUID() }
+  if (!createRetry || createRetry.signature !== signature) createRetry = { signature, key: newRequestKey() }
   payload.requestKey = createRetry.key
   const result = draft.value.id ? await api(`/orders/${draft.value.id}/edit`, { expectedRevision: draft.value.revision, draft: payload }) : await api('/orders', payload)
   setDocument(result); draft.value.id = result.id; draft.value.revision = result.revision; createRetry = null
@@ -80,7 +81,7 @@ function close() { return run(async () => {
 function fillReceipt() { for (const l of document.value.lines) receiving.value.quantities[l.id] = Number(l.remaining) > 0 ? l.remaining : '' }
 function receive() { return run(async () => {
   const payload = receiptPayload(document.value, receiving.value, 'pending'), signature = JSON.stringify([document.value.id, payload])
-  if (!receiptRetry || receiptRetry.signature !== signature) receiptRetry = { signature, key: crypto.randomUUID() }
+  if (!receiptRetry || receiptRetry.signature !== signature) receiptRetry = { signature, key: newRequestKey() }
   payload.requestKey = receiptRetry.key
   if (!window.confirm('Провести прихід? Залишки складу збільшаться, а матеріал буде розподілено в резерв.')) return
   const result = await api(`/orders/${document.value.id}/receipts`, payload)

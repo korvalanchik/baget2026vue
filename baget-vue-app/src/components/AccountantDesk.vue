@@ -1,4 +1,5 @@
 <script setup>
+import { newRequestKey } from '../services/requestKey.js'
 import { computed, onMounted, ref } from 'vue'
 import { paymentAmounts } from '../calculation/billing.js'
 import { productInvoices, productInvoicePdf } from '../services/productInvoices.js'
@@ -23,7 +24,7 @@ function submit(merge = false) { return run(async () => {
   if (!payer.value || !branch.value) throw new Error('Оберіть платника та філію обліку.')
   if ((!merge && !picked.value.length) || (merge && chosenInvoices.value.length < 2)) throw new Error(merge ? 'Оберіть щонайменше два рахунки з боргом.' : 'Оберіть вироби.')
   const payload = { payerId: Number(payer.value.id), branchNo: Number(branch.value), note: note.value, ...(merge ? { invoiceIds: [...chosenInvoices.value].sort((a, b) => a - b) } : { products: ready.value.filter(p => picked.value.includes(p.productId)).map(p => ({ productId: p.productId, confirmedRevision: p.confirmedRevision })) }) }
-  const signature = JSON.stringify([merge, payload]); if (!retry || retry.signature !== signature) retry = { signature, requestKey: crypto.randomUUID() }
+  const signature = JSON.stringify([merge, payload]); if (!retry || retry.signature !== signature) retry = { signature, requestKey: newRequestKey() }
   if (!window.confirm(`${merge ? 'Перенести залишки боргу в об’єднаний рахунок' : 'Виставити рахунок'} для «${payer.value.name}»? Сума за поточними даними: ${money(merge ? mergeTotal.value : selectedTotal.value)} грн.`)) return
   detail.value = await productInvoices(props.session.token, merge ? '/merge' : '', { ...payload, requestKey: retry.requestKey })
   retry = null; picked.value = []; chosenInvoices.value = []; message.value = `Створено рахунок № ${detail.value.invoiceNo}.`; paymentPending.value = false; amount.value = ''; advance.value = ''; await load()
@@ -33,7 +34,7 @@ function payment() { return run(async () => {
   if (!window.confirm(`Підтвердити оплату ${money(cash)} грн і зарахування авансу ${money(allocated)} грн?`)) return
   paymentPending.value = true
   const payload = { amount: cash, allocationAmount: allocated, expectedDebt: detail.value.debt, note: note.value }
-  const signature = JSON.stringify([detail.value.id, payload]); if (!paymentRetry || paymentRetry.signature !== signature) paymentRetry = { signature, requestKey: crypto.randomUUID() }
+  const signature = JSON.stringify([detail.value.id, payload]); if (!paymentRetry || paymentRetry.signature !== signature) paymentRetry = { signature, requestKey: newRequestKey() }
   detail.value = await productInvoices(props.session.token, `/${detail.value.id}/payment`, { ...payload, requestKey: paymentRetry.requestKey }); paymentRetry = null; paymentPending.value = false; amount.value = ''; advance.value = ''; message.value = 'Операцію проведено.'; await load()
 }) }
 function pdf() { return run(() => productInvoicePdf(props.session.token, detail.value.id)) }

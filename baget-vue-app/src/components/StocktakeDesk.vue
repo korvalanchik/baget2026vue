@@ -1,4 +1,5 @@
 <script setup>
+import { newRequestKey } from '../services/requestKey.js'
 import { computed, onMounted, ref } from 'vue'
 import { warehouse } from '../services/warehouse.js'
 import { localDate, stockUnits } from '../calculation/procurement.js'
@@ -42,7 +43,7 @@ function newDocument() {
 function create() { return run(async () => {
   if (!createNote.value.trim() || !createDate.value || !selected.value.length) throw new Error('Оберіть матеріали, дату та підставу інвентаризації.')
   const r = { date: createDate.value, note: createNote.value.trim(), parts: selected.value.map(m => m.partNo).sort((a, b) => a - b) }, signature = JSON.stringify(r)
-  if (!creationRetry || creationRetry.signature !== signature) creationRetry = { signature, key: crypto.randomUUID() }
+  if (!creationRetry || creationRetry.signature !== signature) creationRetry = { signature, key: newRequestKey() }
   setDoc(await api('', { ...r, requestKey: creationRetry.key })); creationRetry = null; selected.value = []; await list(); message.value = 'Чернетку створено. Тепер внесіть фактичні залишки.'
 }) }
 function save() { return run(async () => {
@@ -64,7 +65,7 @@ function post() { return run(async () => {
   if (dirty.value || !review.value?.canPost) throw new Error('Збережіть і перевірте акт перед проведенням.')
   if (review.value.requiresApproval && !approval.value) throw new Error('Погодьте показане зменшення резервів.')
   const r = { expectedRevision: doc.value.revision, reviewToken: review.value.token, acceptReservationReduction: approval.value }, signature = JSON.stringify([doc.value.id, r])
-  if (!postRetry || postRetry.signature !== signature) postRetry = { signature, key: crypto.randomUUID() }
+  if (!postRetry || postRetry.signature !== signature) postRetry = { signature, key: newRequestKey() }
   if (!window.confirm('Провести акт? Фактичні залишки й погоджені резерви зміняться. Проведений акт не можна редагувати.')) return
   setDoc(await api(`/${doc.value.id}/post`, { ...r, requestKey: postRetry.key })); await list(); message.value = 'Акт проведено. Залишки й резерви оновлено.'
 }) }

@@ -1,4 +1,5 @@
 <script setup>
+import { newRequestKey } from '../services/requestKey.js'
 import { onMounted, ref } from 'vue'
 import { warehouse } from '../services/warehouse.js'
 import ProcurementDesk from './ProcurementDesk.vue'
@@ -32,7 +33,7 @@ function submit() { return run(async () => {
   const request = action.value === 'REQUEST'
   const payload = { quantity: qty, note: note.value.trim(), ...(!request ? { operation: action.value, expectedStock: selected.value.onHand } : {}) }
   const signature = JSON.stringify([selected.value.partNo, action.value, payload])
-  if (!retry || retry.signature !== signature) retry = { signature, key: crypto.randomUUID() }
+  if (!retry || retry.signature !== signature) retry = { signature, key: newRequestKey() }
   if (action.value === 'COUNT' && !window.confirm(`Зафіксувати фактичний залишок ${qty} ${units[selected.value.unit] || ''}? Поточний залишок: ${selected.value.onHand ?? 'невідомий'}.`)) return
   selected.value = await warehouse(props.session.token, `/materials/${selected.value.partNo}/${request ? 'requests' : 'stock'}`, { ...payload, requestKey: retry.key })
   retry = null; quantity.value = ''; note.value = ''; message.value = request ? 'Заявку створено. Залишок не змінювався.' : 'Операцію збережено. Доступний матеріал розподілено в резерв.'

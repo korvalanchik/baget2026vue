@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
 import AccountantDesk from "./components/AccountantDesk.vue";
 import MaterialsDesk from "./components/MaterialsDesk.vue";
 import WarehouseDesk from "./components/WarehouseDesk.vue";
@@ -12,6 +12,49 @@ const orderTab = ref("estimate");
 import CustomersDesk from "./components/CustomersDesk.vue";
 import WorkshopDesk from "./components/WorkshopDesk.vue";
 import { canAccess, clearSession, restoreSession } from "./services/auth.js";
+
+const menuOpen = ref(false);
+const mobile = ref(window.matchMedia("(max-width: 750px)").matches);
+const menuButton = ref(null), sidebar = ref(null), content = ref(null);
+const mobileQuery = window.matchMedia("(max-width: 750px)");
+function closeMenu() {
+  menuOpen.value = false;
+  nextTick(() => { if (mobile.value) menuButton.value?.focus(); });
+}
+async function openMenu() {
+  menuOpen.value = true;
+  await nextTick();
+  sidebar.value?.querySelector("button")?.focus();
+}
+function selectSection(id) {
+  activeSection.value = id;
+  closeMenu();
+}
+function trapMenuFocus(event) {
+  if (!mobile.value || !menuOpen.value) return;
+  const buttons = [...sidebar.value.querySelectorAll("button:not([disabled]), a[href], [tabindex='0']")]
+    .filter(el => el.getClientRects().length);
+  const first = buttons[0], last = buttons[buttons.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+}
+function resizeMenu(event) {
+  const focusWasInMenu = sidebar.value?.contains(document.activeElement);
+  mobile.value = event.matches;
+  menuOpen.value = false;
+  if (focusWasInMenu) nextTick(() => {
+    if (event.matches) menuButton.value?.focus();
+    else sidebar.value?.querySelector(".nav-item.active")?.focus();
+  });
+}
+watchEffect(onCleanup => {
+  if (!menuOpen.value || !mobile.value) return;
+  const before = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+  onCleanup(() => { document.body.style.overflow = before; });
+});
+onMounted(() => mobileQuery.addEventListener("change", resizeMenu));
+onBeforeUnmount(() => mobileQuery.removeEventListener("change", resizeMenu));
 
 const session = ref(restoreSession());
 const activeSection = ref(scannedProduct ? 'scanning' : canAccess(session.value, 'orders:create') ? 'new-order' : canAccess(session.value, 'workshop:read') ? 'workshop' : 'scanning');
@@ -41,12 +84,14 @@ const allowedNavigation = computed(() =>
   navigation.filter((item) => canAccess(session.value, item.access)),
 );
 function completeLogin(newSession) {
+  menuOpen.value = false;
   session.value = newSession;
   activeSection.value = scannedProduct ? "scanning" : canAccess(newSession, "orders:create")
     ? "new-order"
     : allowedNavigation.value[0]?.id;
 }
 function signOut() {
+  menuOpen.value = false;
   clearSession();
   session.value = null;
 }
@@ -55,7 +100,11 @@ function signOut() {
 <template>
   <LoginPage v-if="!session" @authenticated="completeLogin" />
   <div v-else class="app-shell">
-    <aside class="sidebar">
+    <button v-if="mobile && menuOpen" class="menu-backdrop" type="button" tabindex="-1" aria-label="Закрити меню" @click="closeMenu"></button>
+    <aside id="main-navigation" ref="sidebar" class="sidebar" :class="{ 'mobile-open': mobile && menuOpen }"
+      :role="mobile && menuOpen ? 'dialog' : undefined" :aria-modal="mobile && menuOpen ? true : undefined"
+      aria-label="Навігація" @keydown.esc.stop.prevent="closeMenu" @keydown.tab="trapMenuFocus">
+      <button class="mobile-menu-close" type="button" @click="closeMenu" aria-label="Закрити меню">✕ Закрити</button>
       <div class="brand">
         <span class="brand-mark">B</span
         ><span>Багет<span class="brand-dot">.</span></span>
@@ -63,7 +112,7 @@ function signOut() {
       <button
         v-if="canAccess(session, 'orders:create')"
         class="new-order"
-        @click="activeSection = 'new-order'"
+        @click="selectSection('new-order')"
       >
         <span>＋</span> Нове замовлення
       </button>
@@ -73,7 +122,8 @@ function signOut() {
           :key="item.id"
           class="nav-item"
           :class="{ active: activeSection === item.id }"
-          @click="activeSection = item.id"
+          :aria-current="activeSection === item.id ? 'page' : undefined"
+          @click="selectSection(item.id)"
         >
           <span class="nav-icon">{{ item.icon }}</span
           ><span>{{ item.label }}</span
@@ -92,8 +142,9 @@ function signOut() {
         <button class="help"><span>?</span> Допомога та підтримка</button>
       </div>
     </aside>
-    <main class="content">
+    <main ref="content" class="content" :inert="mobile && menuOpen">
       <header class="topbar">
+        <button ref="menuButton" class="mobile-menu-button" type="button" aria-controls="main-navigation" :aria-expanded="menuOpen" @click="openMenu"><span aria-hidden="true">☰</span> Меню</button>
         <div class="mobile-brand">Багет<span>.</span></div>
         <label class="search"
           ><span>⌕</span
@@ -137,7 +188,7 @@ function signOut() {
         <button
           v-if="canAccess(session, 'orders:create')"
           class="primary"
-          @click="activeSection = 'new-order'"
+          @click="selectSection('new-order')"
         >
           Створити замовлення
         </button>
@@ -150,4 +201,22 @@ function signOut() {
 .order-mode-tabs { display: flex; gap: 8px; padding: 20px 24px 0; flex-wrap: wrap; }
 .order-mode-tabs button { padding: 12px 18px; border-radius: 10px; border: 1px solid #d7ded9; background: white; cursor: pointer; }
 .order-mode-tabs .selected { color: white; background: #254d3a; border-color: #254d3a; }
+
+.mobile-menu-button, .mobile-menu-close { display: none; }
+.menu-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(16, 28, 45, .55); }
+@media (max-width: 750px) {
+  .mobile-menu-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 8px 10px; border: 1px solid #d7ded9; border-radius: 8px; color: #25344b; background: white; font-size: 14px; flex-shrink: 0; }
+  .mobile-menu-close { display: block; align-self: flex-end; min-height: 44px; padding: 8px 12px; margin-bottom: 10px; border-radius: 8px; color: white; background: #29405f; }
+  .sidebar { display: none; }
+  .sidebar.mobile-open { display: flex; position: fixed; inset: 0 auto 0 0; width: min(310px, calc(100vw - 40px)); height: 100vh; height: 100dvh; z-index: 1001; overflow-y: auto; overscroll-behavior: contain; padding: 12px 16px max(18px, env(safe-area-inset-bottom)); box-shadow: 8px 0 24px #0003; }
+  .sidebar .nav-item { min-height: 44px; height: auto; padding-top: 10px; padding-bottom: 10px; }
+  .sidebar .brand { margin-bottom: 20px; }
+  .sidebar-bottom { padding-top: 20px; }
+  .topbar { gap: 8px; padding: 0 10px; }
+  .top-actions { gap: 6px; }
+  .mobile-brand { font-size: 20px; }
+}
+@media (max-width: 380px) {
+  .top-actions > .icon-button { display: none; }
+}
 </style>

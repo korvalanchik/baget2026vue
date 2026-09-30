@@ -1,11 +1,22 @@
 <script setup>
+import CustomerCreditPanel from './CustomerCreditPanel.vue'
+import ReceivablesDesk from './ReceivablesDesk.vue'
+
+import { newRequestKey } from '../services/requestKey.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import PickupActions from './PickupActions.vue'
 import { crm } from '../services/crm.js'
-import { canAccess } from '../services/auth.js'
+import { canAcceptCustomerPayment } from '../services/customerPayments.js'
 import { outcomes, locations, productionStates, orderStates, phoneLink, contactPayload, groupedOrders } from '../calculation/crm.js'
 const props = defineProps({ session: { type: Object, required: true } })
 const emit = defineEmits(['finance'])
 const cardElement = ref(null)
+const receivables = ref(false)
+async function openDebtor(row) {
+  receivables.value = false
+  await open(row)
+  if (selected.value === row) form.invoiceId = row.invoiceId
+}
 const branches = ref([]), rows = ref([]), hasMore = ref(false), page = ref(0), historyPage = ref(0)
 const loading = ref(false), saving = ref(false), error = ref(''), notice = ref(''), selected = ref(null), detail = ref(null)
 const filters = reactive({ branch: '', tab: 'WORK', q: '', all: false, due: false })
@@ -13,7 +24,8 @@ const form = reactive({ outcome: 'NOTE', note: '', orderNo: '', invoiceId: '', n
 const formBaseline = ref('')
 const dirty = computed(() => JSON.stringify(form) !== formBaseline.value)
 const orders = computed(() => groupedOrders((detail.value?.orders || []).slice(0, 200)))
-const financeAllowed = computed(() => canAccess(props.session, 'customers:finance:read'))
+const financeAllowed = computed(() => canAcceptCustomerPayment(props.session))
+const contactOutcomes = Object.fromEntries(Object.entries(outcomes).filter(([key]) => key !== 'PARTNER' && !key.startsWith('PICKUP_')))
 const invoiceStates = { DRAFT: 'Чернетка', ISSUED: 'Виставлено', PAID: 'Оплачено', PARTIALLY_PAID: 'Частково оплачено', CANCELLED: 'Скасовано', ACTIVE: 'Діючий', MERGED: 'Об’єднано' }
 const tabs = { WORK: 'Замовлення в роботі', READY: 'Очікують видачі', PARTNER: 'Партнери / рахунки' }
 let boardGeneration = 0, retry = null
@@ -29,6 +41,16 @@ async function board(reset = false) {
     const result = await api('/customers?' + query)
     if (generation === boardGeneration) { rows.value = result.rows; hasMore.value = result.hasMore }
   } catch (e) { if (generation === boardGeneration) error.value = e.message } finally { if (generation === boardGeneration) loading.value = false }
+}
+async function pickupSaved(customer, result) {
+  if (selected.value?.customerId === customer.customerId && selected.value?.branchNo === customer.branchNo) {
+    detail.value.pickupOrders = result.pickupOrders
+    detail.value.history = result.history
+    detail.value.hasMore = result.hasMore
+    historyPage.value = 0
+  }
+  notice.value = 'Дію збережено в історії. Дату наступного дзвінка не змінено.'
+  await board()
 }
 function resetForm() {
   Object.assign(form, { outcome: 'NOTE', note: '', orderNo: '', invoiceId: '', nextContactDate: detail.value?.profile.nextContactDate || '' })
@@ -55,7 +77,7 @@ async function save(partner = false) {
     const payload = partner ? { requestKey: '', expectedRevision: detail.value.profile.revision, partner: !detail.value.profile.partner } : contactPayload(form, '', detail.value.profile.revision)
     if (!partner && detail.value.profile.nextContactDate && !payload.nextContactDate && !window.confirm('Завершити поточну домовленість і прибрати дату наступного контакту?')) return
     const signature = JSON.stringify([cardPath(), partner, payload])
-    if (!retry || retry.signature !== signature) retry = { signature, key: crypto.randomUUID() }
+    if (!retry || retry.signature !== signature) retry = { signature, key: newRequestKey() }
     payload.requestKey = retry.key
     const result = await api(cardPath() + (partner ? '/partner' : '/contacts'), payload)
     detail.value = result; historyPage.value = 0; retry = null
@@ -75,6 +97,10 @@ onMounted(async () => {
 </script>
 <template>
   <section class="crm">
+    <div v-if="financeAllowed" class="tools"><button :disabled="saving" @click="receivables = !receivables">{{ receivables ? 'До роботи з клієнтами' : 'Очікується оплата / Прострочено' }}</button></div>
+    <ReceivablesDesk v-if="receivables" :session="session" @customer="openDebtor" />
+    <div v-show="!receivables">
+
     <h1>Клієнти CRM</h1>
     <p>Робота із замовленнями, видачею та домовленостями. Один клієнт може бути у кількох списках.</p>
     <nav class="tools"><button v-for="(name, key) in tabs" :key="key" :class="{ active: filters.tab === key }" :disabled="loading" @click="filters.tab = key; filters.all = false; board(true)">{{ name }}</button></nav>
@@ -94,6 +120,7 @@ onMounted(async () => {
         <p v-if="c.lastContact">Останній контакт: {{ fmtDate(c.lastContact) }} · {{ outcomes[c.lastOutcome] || c.lastOutcome }} · {{ c.lastActor }}<br>{{ c.lastNote }}</p>
         <p v-if="c.nextContactDate"><strong>Наступний контакт: {{ fmtDate(c.nextContactDate) }}</strong></p>
         <button :disabled="saving" @click="open(c)">Відкрити картку</button>
+        <PickupActions v-for="o in c.pickupOrders || []" :key="o.orderNo" :session="session" :customer="c" :order="o" :disabled="saving" @busy="saving = $event" @saved="pickupSaved(c, $event)" />
       </article>
     </div>
     <p v-if="!loading && !rows.length">Клієнтів за цими умовами немає.</p>
@@ -106,6 +133,8 @@ onMounted(async () => {
         <button v-if="financeAllowed" :disabled="saving" @click="emit('finance', selected)">Рахунки, оплата та аванс</button>
       </div>
       <p>Ознака партнера та домовленості зберігаються для цієї філії. Натискання номера телефону не записує контакт автоматично.</p>
+      <CustomerCreditPanel v-if="financeAllowed" :key="`${selected.customerId}-${selected.branchNo}`" :session="session" :customer-id="Number(selected.customerId)" :branch-no="Number(selected.branchNo)" @busy="saving = $event" />
+      <PickupActions v-for="o in detail.pickupOrders || []" :key="o.orderNo" :session="session" :customer="selected" :order="o" :disabled="saving" @busy="saving = $event" @saved="pickupSaved(selected, $event)" />
       <details open><summary>Замовлення та готовність</summary>
         <p v-if="detail.orders.length > 200">Показано останні 200 позицій. Для давнішого замовлення використайте його номер у записі контакту.</p>
         <article v-for="o in orders" :key="o.orderNo">
@@ -120,10 +149,10 @@ onMounted(async () => {
         <p v-if="!detail.invoices.length">Рахунків немає.</p>
         <p v-for="i in detail.invoices.slice(0, 200)" :key="i.id">№ {{ i.invoiceNo }} · {{ invoiceStates[i.status] || i.status }} · {{ invoiceStates[i.lifecycle] || i.lifecycle }} <button :disabled="saving" @click="form.invoiceId = i.id">Пов’язати контакт</button></p>
       </details>
-      <h3>Запис контакту</h3>
+      <h3>Запис контакту</h3><p>Для повідомлення про готовність використовуйте швидкі кнопки конкретного замовлення вище. Загальний запис контакту не змінює позначки готовності.</p>
       <form @submit.prevent="save(false)">
         <div class="tools">
-          <label>Результат<select v-model="form.outcome" :disabled="saving"><option v-for="(name, key) in outcomes" v-show="key !== 'PARTNER'" :key="key" :value="key" :disabled="key === 'PARTNER'">{{ name }}</option></select></label>
+          <label>Результат<select v-model="form.outcome" :disabled="saving"><option v-for="(name, key) in contactOutcomes" :key="key" :value="key" :disabled="key === 'PARTNER'">{{ name }}</option></select></label>
           <label>Наступний контакт<input v-model="form.nextContactDate" :disabled="saving || form.outcome === 'DONE'" type="date"></label>
           <label>№ замовлення (необов’язково)<input v-model="form.orderNo" :disabled="saving" inputmode="numeric"></label>
           <label>Рахунок<select v-model="form.invoiceId" :disabled="saving"><option value="">Без прив’язки</option><option v-for="i in detail.invoices" :key="i.id" :value="i.id">№ {{ i.invoiceNo }}</option></select></label>
@@ -134,9 +163,10 @@ onMounted(async () => {
       </form>
       <h3>Історія роботи з клієнтом</h3>
       <p v-if="!detail.history.length">Записів ще немає.</p>
-      <article v-for="e in detail.history" :key="e.id"><strong>{{ fmtDate(e.createdAt) }} · {{ e.actor }} · {{ outcomes[e.outcome] || e.outcome }}</strong><p class="note">{{ e.note }}</p><p v-if="e.orderNo">Замовлення № {{ e.orderNo }}</p><p v-if="e.invoiceId">Рахунок № {{ e.invoiceNo || e.invoiceId }}</p><p v-if="e.nextContactDate">Домовлено про наступний контакт: {{ fmtDate(e.nextContactDate) }}</p></article>
+      <article v-for="e in detail.history" :key="e.id"><strong>{{ fmtDate(e.createdAt) }} · {{ e.actor }} · {{ outcomes[e.outcome] || e.outcome }}</strong><p class="note">{{ e.note }}</p><p v-if="e.orderNo">Замовлення № {{ e.orderNo }}</p><p v-if="e.invoiceId">Рахунок № {{ e.invoiceNo || e.invoiceId }}</p><p v-if="e.pickupDate">Обіцяна дата отримання: {{ fmtDate(e.pickupDate) }}</p><p v-if="e.nextContactDate">Домовлено про наступний контакт: {{ fmtDate(e.nextContactDate) }}</p></article>
       <div class="tools"><button :disabled="saving || !historyPage" @click="history(-1)">Новіші</button><span>Сторінка {{ historyPage + 1 }}</span><button :disabled="saving || !detail.hasMore" @click="history(1)">Старіші</button></div>
     </section>
+  </div>
   </section>
 </template>
 <style scoped>

@@ -1,10 +1,14 @@
 <script setup>
+import CustomerFinancePanel from './CustomerFinancePanel.vue'
+import { canAcceptCustomerPayment } from '../services/customerPayments.js'
+
 import { onMounted, ref } from 'vue'
 import { warehouse, locations, trackingToken } from '../services/warehouse.js'
 const props = defineProps({ session: { type: Object, required: true }, productId: { type: Number, default: null }, initialToken: { type: String, default: '' }, disabled: Boolean })
 const emit = defineEmits(['transferred'])
+const paymentBusy = ref(false)
 const data = ref(null), input = ref(props.initialToken), error = ref(''), busy = ref(false), label = ref(null), note = ref('')
-async function run(fn, readOnly = false) { if (busy.value || (!readOnly && props.disabled)) return; busy.value = true; error.value = ''; try { await fn() } catch (e) { error.value = e.message } finally { busy.value = false } }
+async function run(fn, readOnly = false) { if (busy.value || (!readOnly && (props.disabled || paymentBusy.value))) return; busy.value = true; error.value = ''; try { await fn() } catch (e) { error.value = e.message } finally { busy.value = false } }
 function load() { return run(async () => { label.value = null; data.value = null; data.value = await warehouse(props.session.token, props.productId ? `/products/by-id/${props.productId}` : `/products/${trackingToken(input.value)}`) }, true) }
 function move(accept, destination) { return run(async () => { data.value = await warehouse(props.session.token, `/products/${data.value.trackingId}/${accept ? 'accept' : 'send'}`, { expectedRevision: data.value.revision, destination, note: note.value }); note.value = ''; emit('transferred') }) }
 function cancelTransfer() { return run(async () => {
@@ -32,17 +36,20 @@ onMounted(() => { if (props.productId || input.value) load() })
       <h4>Замовлення № {{ data.orderNo }} · {{ data.productName }}</h4>
       <p>{{ data.branchName }} · {{ data.state === 'COMPLETED' ? 'Виготовлено' : 'Виробництво ще не завершене' }}</p>
       <p>Місце: <strong>{{ locations[data.location] }}</strong><span v-if="data.pending"> → Очікує приймання: {{ locations[data.pending] }} (передав {{ data.transferActor }})</span></p>
-      <label>Примітка до передачі<input v-model="note" maxlength="1000" :disabled="busy || disabled"></label>
+      <div v-if="data.payment"><p>{{ data.payment.message }}<strong v-if="data.payment.dueDate"> · Сплатити до {{ data.payment.dueDate }}</strong><strong v-if="data.payment.overdue"> · Строк оплати прострочено</strong><span v-if="data.payment.invoiceNo"> · Рахунок № {{ data.payment.invoiceNo }} · Борг: {{ data.payment.debt }} грн</span></p>
+        <CustomerFinancePanel v-if="data.location === 'BRANCH' && canAcceptCustomerPayment(session)" :key="`${data.payment.customerId}-${data.payment.branchNo}`" :session="session" :customer-id="Number(data.payment.customerId)" :branch-no="Number(data.payment.branchNo)" :invoice-id="data.payment.invoiceId ? Number(data.payment.invoiceId) : null" @paid="paymentBusy = false; load()" @busy="paymentBusy = $event" />
+      </div>
+      <label>Примітка до передачі<input v-model="note" maxlength="1000" :disabled="busy || disabled || paymentBusy"></label>
       <div class="actions">
         <button type="button" :disabled="busy" @click="load">Оновити</button>
         <template v-if="data.state === 'COMPLETED'">
-          <button v-if="data.canCancel" type="button" :disabled="busy || disabled" @click="cancelTransfer">Відкликати передачу</button>
-          <button type="button" :disabled="busy || disabled" @click="printLabel">Етикетка з QR</button>
-          <button v-if="data.pending && (data.pending !== 'WAREHOUSE' || data.canWarehouse) && (data.pending !== 'WORKSHOP' || data.canReceiveWorkshop)" type="button" :disabled="busy || disabled" @click="move(true, data.pending)">{{ data.pending === 'CUSTOMER' ? 'Підтвердити видачу клієнту' : 'Підтвердити приймання' }}</button>
-          <button v-if="!data.pending && data.location === 'WORKSHOP' && data.canWarehouse" type="button" :disabled="busy || disabled" @click="move(false, 'WAREHOUSE')">Передати на склад</button>
-          <button v-if="!data.pending && data.location === 'WAREHOUSE' && data.canWarehouse" type="button" :disabled="busy || disabled" @click="move(false, 'BRANCH')">Передати до філії</button>
-          <button v-if="!data.pending && data.canReturnWorkshop && (data.location === 'BRANCH' || data.canWarehouse)" type="button" :disabled="busy || disabled" @click="move(false, 'WORKSHOP')">Повернути до майстерні</button>
-          <button v-if="!data.pending && data.location === 'BRANCH'" type="button" :disabled="busy || disabled" @click="move(false, 'CUSTOMER')">Передати клієнту</button>
+          <button v-if="data.canCancel" type="button" :disabled="busy || disabled || paymentBusy" @click="cancelTransfer">Відкликати передачу</button>
+          <button type="button" :disabled="busy || disabled || paymentBusy" @click="printLabel">Етикетка з QR</button>
+          <button v-if="data.pending && (data.pending !== 'WAREHOUSE' || data.canWarehouse) && (data.pending !== 'WORKSHOP' || data.canReceiveWorkshop)" type="button" :disabled="busy || disabled || paymentBusy || (data.pending === 'CUSTOMER' && !data.payment?.canIssue)" @click="move(true, data.pending)">{{ data.pending === 'CUSTOMER' ? 'Підтвердити видачу клієнту' : 'Підтвердити приймання' }}</button>
+          <button v-if="!data.pending && data.location === 'WORKSHOP' && data.canWarehouse" type="button" :disabled="busy || disabled || paymentBusy" @click="move(false, 'WAREHOUSE')">Передати на склад</button>
+          <button v-if="!data.pending && data.location === 'WAREHOUSE' && data.canWarehouse" type="button" :disabled="busy || disabled || paymentBusy" @click="move(false, 'BRANCH')">Передати до філії</button>
+          <button v-if="!data.pending && data.canReturnWorkshop && (data.location === 'BRANCH' || data.canWarehouse)" type="button" :disabled="busy || disabled || paymentBusy" @click="move(false, 'WORKSHOP')">Повернути до майстерні</button>
+          <button v-if="!data.pending && data.location === 'BRANCH'" type="button" :disabled="busy || disabled || paymentBusy || !data.payment?.canIssue" @click="move(false, 'CUSTOMER')">Передати клієнту</button>
         </template>
       </div>
       <div v-if="label" class="label"><img :src="label.image" alt="QR виробу"><p>{{ data.orderNo }} · {{ data.productName }}</p><button type="button" @click="print">Друкувати етикетку</button></div>
