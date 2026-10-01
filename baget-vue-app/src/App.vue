@@ -1,5 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
+import CommercialDesk from "./components/CommercialDesk.vue";
+import OrderApprovalsDesk from "./components/OrderApprovalsDesk.vue";
 import AccountantDesk from "./components/AccountantDesk.vue";
 import MaterialsDesk from "./components/MaterialsDesk.vue";
 import WarehouseDesk from "./components/WarehouseDesk.vue";
@@ -69,7 +71,6 @@ const navigation = [
     id: "orders",
     icon: "▤",
     label: "Замовлення",
-    badge: "12",
     access: "orders:read",
   },
   { id: "customers", icon: "♙", label: "Клієнти CRM", access: "customers:crm:read" },
@@ -79,9 +80,11 @@ const navigation = [
   { id: "scanning", icon: "↗", label: "Сканування", access: "scanning:read" },
   { id: "accountant", icon: "▧", label: "Рахунки за виробами", access: "finance:read" },
   { id: "finance", icon: "₴", label: "Фінанси", access: "finance:read" },
+  { id: "settings", icon: "⚙", label: "Налаштування" },
 ];
+const isAdmin = computed(() => session.value?.roles?.includes("ROLE_ADMIN") === true);
 const allowedNavigation = computed(() =>
-  navigation.filter((item) => canAccess(session.value, item.access)),
+  navigation.filter((item) => item.id === "settings" ? isAdmin.value : canAccess(session.value, item.access)),
 );
 function completeLogin(newSession) {
   menuOpen.value = false;
@@ -173,6 +176,8 @@ function signOut() {
         <OrderForm v-else :session="session" />
         </KeepAlive>
       </section>
+      <section v-else-if="activeSection === 'settings' && isAdmin" class="settings-page"><h1>Налаштування</h1><CommercialDesk :session="session" /></section>
+      <OrderApprovalsDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" />
       <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" />
       <WorkshopDesk v-else-if="activeSection === 'workshop'" :session="session" @open-finance="activeSection = 'customers'" />
       <AccountantDesk v-else-if="activeSection === 'accountant'" :session="session" />
@@ -198,6 +203,7 @@ function signOut() {
 </template>
 
 <style scoped>
+.settings-page { padding: 20px clamp(12px, 3vw, 28px); min-width: 0; }
 .order-mode-tabs { display: flex; gap: 8px; padding: 20px 24px 0; flex-wrap: wrap; }
 .order-mode-tabs button { padding: 12px 18px; border-radius: 10px; border: 1px solid #d7ded9; background: white; cursor: pointer; }
 .order-mode-tabs .selected { color: white; background: #254d3a; border-color: #254d3a; }

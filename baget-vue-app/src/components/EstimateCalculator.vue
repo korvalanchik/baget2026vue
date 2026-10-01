@@ -1,4 +1,5 @@
 <script setup>
+import PriceApprovalPanel from './PriceApprovalPanel.vue'
 import CustomerFinancePanel from './CustomerFinancePanel.vue'
 import { canAcceptCustomerPayment } from '../services/customerPayments.js'
 
@@ -329,6 +330,8 @@ async function calculate() {
       props.session.token,
       payload,
       controller.signal,
+      savedOrder.value?.branchName || props.session.branch.name,
+      savedOrder.value?.orderNo,
     );
     if (current === revision) {
       verifyCordChoices(response, payload);
@@ -376,20 +379,19 @@ onBeforeUnmount(() => {
       <div>
         <h1>Розрахунок оформлення</h1>
         <p>
-          Ціни та витрати матеріалів розраховує сервер за вашим рівнем доступу.
+          Розміри → матеріали → кошторис. Усі розміри вказуйте в міліметрах.
         </p>
       </div>
     </header>
     <p class="estimate-note">
-      Попередній кошторис. Розрахунок не створює замовлення й не списує
-      матеріали.
+      Попередній розрахунок. Замовлення та резерв створюються після збереження.
     </p>
     <p v-if="catalogBusy" role="status">Завантажуємо каталог багетів…</p>
     <p v-if="catalogError" role="alert" class="form-message">
       {{ catalogError }}
       <button type="button" @click="loadCatalog">Повторити</button>
     </p>
-    <div class="estimate-actions">
+    <div class="estimate-actions open-order">
       <label
         >Відкрити замовлення №<input
           v-model="openNumber"
@@ -417,7 +419,7 @@ onBeforeUnmount(() => {
           <p>
             Філія: {{ savedOrder?.branchName || props.session.branch.name }}
           </p>
-          <div class="estimate-grid">
+          <div class="estimate-grid customer-grid">
             <label
               >Телефон<input
                 v-model="details.phone"
@@ -476,7 +478,7 @@ onBeforeUnmount(() => {
             >Примітка до замовлення<textarea
               v-model="details.notice"
               maxlength="100"
-              rows="2"
+              rows="1"
             ></textarea>
           </label>
         </section>
@@ -485,14 +487,6 @@ onBeforeUnmount(() => {
           :key="a.id"
           class="form-card estimate-item"
         >
-          <label
-            >Примітка до виробу<textarea
-              v-model="a.note"
-              maxlength="500"
-              rows="2"
-              placeholder="Опис оформлення, прийняті речі клієнта…"
-            ></textarea>
-          </label>
           <div class="estimate-heading">
             <h2>Виріб {{ index + 1 }}</h2>
             <button
@@ -507,7 +501,7 @@ onBeforeUnmount(() => {
             ><input v-model="a.withFrame" type="checkbox" /> Оформлення в
             раму</label
           >
-          <div class="estimate-grid">
+          <div class="estimate-grid geometry-grid">
             <label
               >Ширина роботи, мм<input
                 v-model="a.widthMm"
@@ -544,6 +538,14 @@ onBeforeUnmount(() => {
               :input-id="`${a.id}-frame`"
             />
           </div>
+          <label class="product-note"
+            >Примітка до виробу<textarea
+              v-model="a.note"
+              maxlength="500"
+              rows="1"
+              placeholder="Опис оформлення, прийняті речі клієнта…"
+            ></textarea>
+          </label>
           <p v-if="!a.withFrame" class="estimate-muted">Скло, задник і паспарту можна замовити без рами. Крокодил для задника та кліпси антирами можна додати нижче. Шнурок, лапки та клей для рами не додаються.</p>
           <div class="estimate-groups">
             <fieldset v-for="group in groups" :key="group.key">
@@ -600,10 +602,10 @@ onBeforeUnmount(() => {
           </div>
           <fieldset v-if="a.mats.length">
             <legend>Поля паспарту, мм</legend>
-            <p class="estimate-muted">
+            <details class="field-help"><summary>Як враховуються поля</summary><p class="estimate-muted">
               Для шару з найменшим отвором. Поля додаються до розміру роботи
               один раз.
-            </p>
+            </p></details>
             <div class="estimate-grid">
               <label v-for="[key, label] in marginFields" :key="key"
                 >{{ label
@@ -661,11 +663,11 @@ onBeforeUnmount(() => {
                 </select></label
               >
             </div>
-            <p class="estimate-muted">
+            <details class="field-help"><summary>Як розраховується натяжка</summary><p class="estimate-muted">
               Підрамник і натяжка розраховуються за розміром роботи, без полів
               паспарту. При натяжці на підрамник його вартість враховується один
               раз разом із перемичками.
-            </p>
+            </p></details>
             <p v-if="a.artworkType === 'EMBROIDERY'" class="estimate-muted">Вишивка клієнта — без вартості полотна. На площину: матеріали для натяжки та робота; основу виберіть у задниках. На підрамник: підрамник і робота з натяжки. Без натяжки ці матеріали та роботи не додаються.</p>
             <p v-if="a.artworkType === 'PRINT'" class="estimate-muted">
               «Принт» визначає спосіб розрахунку натяжки. Вартість друку в цей
@@ -680,9 +682,9 @@ onBeforeUnmount(() => {
             </p>
           </fieldset>
           <div class="estimate-grid">
-            <label v-if="!a.withFrame"><input v-model="a.antiFrame" type="checkbox" /> Антирама — кліпси (1 на 200 мм периметру, мінімум 4)</label>
-            <label v-if="!a.withFrame && a.backings.length"><input v-model="a.includeBackingHanger" type="checkbox" /> Додати крокодил на задник</label>
-            <label v-if="a.withFrame && a.underframePartNo"><input v-model="a.includeUnderframeFasteners" type="checkbox" /> Кріплення підрамника до багета (1 на 400 мм, мінімум 4)</label>
+            <label class="estimate-check" v-if="!a.withFrame"><input v-model="a.antiFrame" type="checkbox" /> Антирама — кліпси (1 на 200 мм периметру, мінімум 4)</label>
+            <label class="estimate-check" v-if="!a.withFrame && a.backings.length"><input v-model="a.includeBackingHanger" type="checkbox" /> Додати крокодил на задник</label>
+            <label class="estimate-check" v-if="a.withFrame && a.underframePartNo"><input v-model="a.includeUnderframeFasteners" type="checkbox" /> Кріплення підрамника до багета (1 на 400 мм, мінімум 4)</label>
           </div>
           <fieldset v-if="a.withFrame || (a.includeBackingHanger && a.backings.length)">
             <legend>Кріплення</legend>
@@ -732,14 +734,14 @@ onBeforeUnmount(() => {
                   placeholder="Автоматично"
               /></label>
             </div>
-            <p class="estimate-muted">
+            <details class="field-help"><summary>Правила кріплень</summary><p class="estimate-muted">
               Шнурок сумісний із підвісами 099 та силовими; для дзеркала шириною
               понад 400 мм не додається. Довжина — зовнішня ширина + 100 мм на
               виріб. ПВХ та ДВП мають однакові правила кріплень.
-            </p>
+            </p></details>
           </fieldset>
         </section>
-        <div class="estimate-actions">
+        <div class="estimate-actions submit-actions">
           <button
             type="button"
             :disabled="artworks.length >= 50"
@@ -754,7 +756,6 @@ onBeforeUnmount(() => {
           >
             {{ busy ? "Розраховуємо…" : "Розрахувати кошторис" }}
           </button>
-        </div>
         <button
           type="button"
           class="primary"
@@ -766,15 +767,17 @@ onBeforeUnmount(() => {
               ? "Зберігаємо…"
               : savedOrder
                 ? "Зберегти зміни замовлення"
-                : "Прийняти замовлення й зарезервувати"
+                : "Зберегти замовлення й резерв"
           }}
         </button>
+        </div>
       </fieldset>
       <p v-if="validation" class="estimate-muted">{{ validation }}</p>
       <p v-if="error" role="alert" class="form-message">{{ error }}</p>
     </form>
     <p v-if="orderMessage" role="status">{{ orderMessage }}</p>
     <CustomerFinancePanel v-if="savedOrder && canAcceptCustomerPayment(session)" :key="savedOrder.orderNo" :session="session" :order-no="Number(savedOrder.orderNo)" />
+    <template v-if="savedOrder"><PriceApprovalPanel v-for="p in savedOrder.products" :key="`${p.id}-${savedOrder.revision}`" :session="session" :product-id="Number(p.id)" :revision="Number(savedOrder.revision)" /></template>
     <section v-if="savedOrder" class="form-card">
       <h2>
         Замовлення №{{ savedOrder.orderNo }} · {{ money(savedOrder.total) }}
@@ -879,148 +882,80 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.order-edit-fields {
-  border: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
-}
-.estimate-page {
-  max-width: 1200px;
-}
-.estimate-note {
-  padding: 14px 18px;
-  background: #edf4f0;
-  border-radius: 12px;
-  color: #335446;
-  margin-bottom: 20px;
-}
-.estimate-item {
-  margin-bottom: 20px;
-}
-.estimate-heading,
-.estimate-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-}
-.estimate-heading {
-  justify-content: space-between;
-}
-.estimate-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-.estimate-frame {
-  grid-column: 1 / -1;
-}
-.estimate-page label {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  font-size: 13px;
-  min-width: 0;
-}
-.estimate-page input,
-.estimate-page select {
-  width: 100%;
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid #d7ded9;
-  border-radius: 8px;
-  background: white;
-  color: #253c30;
-}
-.estimate-page button {
-  padding: 10px 14px;
-  border: 1px solid #d7ded9;
-  border-radius: 8px;
-  cursor: pointer;
-}
-.estimate-page button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.estimate-page button.primary {
-  background: #254d3a;
-  color: white;
-}
-.estimate-groups {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 20px;
-}
-.estimate-page fieldset {
-  min-width: 0;
-  border: 1px solid #e1e7e2;
-  border-radius: 10px;
-  padding: 14px;
-  margin: 16px 0;
-}
-.estimate-page legend {
-  padding: 0 6px;
-  font-weight: 600;
-}
-.estimate-sheet {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 70px 38px;
-  align-items: end;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.estimate-sheet button {
-  padding: 10px;
-}
-.estimate-muted {
-  font-size: 13px;
-  color: #64736a;
-  margin: 10px 0;
-}
-.estimate-page .estimate-check {
-  flex-direction: row;
-  align-items: center;
-}
-.estimate-check input {
-  width: auto;
-}
-.estimate-result {
-  margin-top: 24px;
-}
-.estimate-result h3 {
-  margin-top: 24px;
-}
-.estimate-result-line {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  border-bottom: 1px solid #edf0ed;
-  padding: 14px 0;
-}
-.estimate-result-line p {
-  margin: 5px 0;
-  overflow-wrap: anywhere;
-}
-.estimate-result-line > strong {
-  white-space: nowrap;
-}
-.estimate-item-total {
-  text-align: right;
-  font-weight: 600;
-}
-@media (max-width: 1050px) {
-  .estimate-groups {
-    grid-template-columns: 1fr;
-  }
+.estimate-page { max-width: 1280px; margin: 0 auto; padding: 16px 24px 32px; container-type: inline-size; color: #253c30; }
+.estimate-page .page-head { padding: 0; margin-bottom: 12px; }
+.estimate-page .page-head h1 { font-size: 24px; letter-spacing: -.4px; }
+.estimate-page .page-head p { color: #607168; font-size: 13px; line-height: 1.5; }
+.estimate-note { padding: 9px 12px; background: #edf4f0; border-radius: 8px; color: #335446; margin: 0 0 12px; font-size: 13px; }
+.order-edit-fields { border: 0 !important; padding: 0 !important; margin: 0 !important; }
+.estimate-page .form-card { padding: 16px; margin-bottom: 14px; border-color: #dde5df; border-radius: 12px; }
+.estimate-page h2 { font-size: 17px; margin: 0 0 8px; }
+.estimate-page h3 { font-size: 15px; }
+.estimate-page p { line-height: 1.5; }
+.estimate-page .form-card > p { margin: 8px 0; font-size: 13px; }
+.estimate-heading, .estimate-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.estimate-heading { justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid #edf0ed; }
+.estimate-heading h2 { margin: 0; }
+.open-order { align-items: end; }
+.open-order label { max-width: 230px; flex: 1; }
+.estimate-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; align-items: end; }
+.geometry-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 10px; }
+.estimate-frame { grid-column: 1 / -1; }
+.estimate-page label { display: flex; flex-direction: column; gap: 5px; font-size: 13px; line-height: 1.4; min-width: 0; font-weight: 500; }
+.estimate-page input, .estimate-page select, .estimate-page textarea { width: 100%; min-width: 0; min-height: 40px; padding: 8px 10px; border: 1px solid #cdd9d1; border-radius: 7px; background: white; color: #253c30; font: inherit; box-sizing: border-box; }
+.estimate-page textarea { display: block; height: 40px; min-height: 40px; max-height: 220px; resize: vertical; line-height: 1.5; }
+.estimate-page input:focus-visible, .estimate-page select:focus-visible, .estimate-page textarea:focus-visible, .estimate-page button:focus-visible, summary:focus-visible { outline: 2px solid #387557; outline-offset: 2px; }
+.estimate-page input[readonly] { background: #f4f7f5; }
+.product-note { margin-top: 10px; }
+.estimate-page button { min-height: 40px; padding: 8px 12px; border: 1px solid #cdd9d1; border-radius: 8px; cursor: pointer; background: #f7faf8; color: #294c39; font: inherit; font-size: 13px; }
+.estimate-page button:hover:not(:disabled) { background: #eaf2ed; }
+.estimate-page button:disabled { opacity: .5; cursor: default; }
+.estimate-page button.primary { background: #254d3a; color: white; border-color: #254d3a; }
+.estimate-page button.primary:hover:not(:disabled) { background: #193b2b; }
+.estimate-groups { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 12px; }
+.estimate-page fieldset { min-width: 0; border: 1px solid #dfe7e1; border-radius: 8px; padding: 10px 12px; margin: 12px 0; }
+.estimate-groups fieldset { margin: 0; background: #fbfcfb; }
+.estimate-page legend { padding: 0 5px; font-size: 13px; font-weight: 700; }
+.estimate-sheet { display: grid; grid-template-columns: minmax(0, 1fr) 64px 40px; align-items: end; gap: 6px; margin-bottom: 8px; }
+.estimate-sheet button { padding: 6px; font-size: 20px; }
+.estimate-muted { font-size: 12px; color: #607168; margin: 8px 0; }
+.estimate-page .estimate-check { flex-direction: row; align-items: center; gap: 8px; min-height: 40px; }
+.estimate-page input[type=checkbox] { width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; accent-color: #254d3a; }
+.field-help { margin-top: 8px; font-size: 12px; color: #607168; }
+.field-help summary { cursor: pointer; padding: 5px 0; width: fit-content; }
+.field-help p { margin-bottom: 0; }
+.submit-actions { padding: 12px; background: #edf4f0; border: 1px solid #dce8df; border-radius: 10px; margin-top: 12px; }
+.estimate-result { margin-top: 16px; }
+.estimate-result h3 { margin-top: 18px; }
+.estimate-result-line { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid #edf0ed; padding: 9px 0; font-size: 13px; }
+.estimate-result-line > div { min-width: 0; }
+.estimate-result-line p { margin: 3px 0; overflow-wrap: anywhere; }
+.estimate-result-line > strong { white-space: nowrap; }
+.estimate-item-total { text-align: right; font-weight: 600; }
+.estimate-frame :deep(input) { min-height: 40px; padding: 8px 10px; }
+.estimate-frame :deep(label) { margin-bottom: 5px; line-height: 1.4; }
+@container (min-width: 920px) {
+ .estimate-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+ .geometry-grid { grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr) minmax(100px, 1fr) minmax(200px, 2fr); }
+ .estimate-frame { grid-column: auto; }
+ .estimate-groups { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 600px) {
-  .estimate-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .estimate-actions button {
-    flex: 1 1 auto;
-  }
+ .estimate-page { padding: 12px 10px 24px; }
+ .estimate-page .form-card { padding: 12px; }
+ .estimate-page .page-head h1 { font-size: 21px; }
+ .estimate-page input, .estimate-page select, .estimate-page textarea, .estimate-frame :deep(input) { font-size: 16px; min-height: 44px; }
+ .estimate-page textarea { height: 44px; }
+ .estimate-page button { min-height: 44px; }
+ .estimate-page input[type=checkbox] { min-height: 18px; }
+ .estimate-page .estimate-check { min-height: 44px; }
+ .estimate-grid { gap: 10px 8px; }
+ .customer-grid, .estimate-grid:not(.geometry-grid):has(select) { grid-template-columns: 1fr; }
+ .geometry-grid label { font-size: 12px; }
+ .estimate-sheet { grid-template-columns: minmax(0, 1fr) 60px 44px; }
+ .estimate-page fieldset { padding: 10px; }
+ .submit-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+ .submit-actions .primary { grid-column: 1 / -1; }
+ .estimate-result-line { flex-wrap: wrap; }
 }
 </style>

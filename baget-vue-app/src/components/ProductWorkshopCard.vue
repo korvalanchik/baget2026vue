@@ -1,4 +1,5 @@
 <script setup>
+import PriceApprovalPanel from './PriceApprovalPanel.vue'
 import ProductTracking from './ProductTracking.vue'
 import { branchDimensions, historyActualLabel } from '../calculation/workshopHistory.js'
 import ProductRework from './ProductRework.vue'
@@ -12,6 +13,7 @@ const props = defineProps({ session: { type: Object, required: true }, orderNo: 
 const emit = defineEmits(['changed', 'dirty', 'busy'])
 const view = ref(null), products = ref([]), baselines = ref({}), working = ref(false), error = ref(''), message = ref('')
 const measurements = ref({})
+const priceReady = ref({})
 const reworkDirty = ref({}), childBusy = ref({})
 const busy = computed(() => working.value || Object.values(childBusy.value).some(Boolean))
 const changed = p => draftKey(p) !== baselines.value[p.id]
@@ -27,6 +29,7 @@ const actions = { REWORK_OPEN: 'Відкрито доопрацювання', RE
 watch(dirty, value => emit('dirty', value))
 watch(busy, value => emit('busy', value), { flush: 'sync' })
 function accept(data) {
+  priceReady.value = {}
   reworkDirty.value = {}
   measurements.value = {}
   view.value = data
@@ -104,6 +107,7 @@ onMounted(reload)
           <p v-if="form(p).mats?.length">Поля паспарту, мм: ліве {{ form(p).margins?.leftMm || 0 }}, праве {{ form(p).margins?.rightMm || 0 }}, верхнє {{ form(p).margins?.topMm || 0 }}, нижнє {{ form(p).margins?.bottomMm || 0 }}.</p>
           <p>Матеріали, роботи та планові кількості наведені в таблиці нижче.</p>
         </details>
+        <PriceApprovalPanel :key="`${p.id}-${view.revision}`" :session="session" :product-id="Number(p.id)" :revision="Number(view.revision)" :disabled="busy || dirty" @ready="priceReady[p.id] = $event" @changed="reload" />
         <div class="measurements">
           <label>Обмір роботи без полів паспарту: ширина, мм<input v-model="p.widthMm" type="number" min="0.001" max="999999" step="0.001" :disabled="busy || !productEditable(p, view.canEdit) || othersDirty(p)"></label>
           <label>Висота роботи без полів паспарту, мм<input v-model="p.heightMm" type="number" min="0.001" max="999999" step="0.001" :disabled="busy || !productEditable(p, view.canEdit) || othersDirty(p)"></label>
@@ -123,7 +127,7 @@ onMounted(reload)
         <details v-if="!p.rework?.active && p.rework?.reservations?.length"><summary>Потреба й резерв після останнього збереження</summary><p v-for="m in p.rework.reservations" :key="m.partNo">{{ m.description }}: потрібно {{ m.demand }}, зарезервовано {{ m.reserved }}, нестача {{ m.shortage }} {{ units[m.unit] }}<span v-if="!m.stockKnown"> · залишок складу невідомий</span>.</p></details>
         <label class="note">Примітка до обміру / причина коригування<textarea v-model="p.note" rows="2" maxlength="2000" :disabled="busy || !productEditable(p, view.canEdit) || othersDirty(p)"></textarea></label>
         <div v-if="view.canEdit" class="actions">
-          <button v-for="[state, label] in productActions(p)" :key="state" type="button" :disabled="busy || dirty" @click="transition(p, state)">{{ label }}</button>
+          <button v-for="[state, label] in productActions(p)" :key="state" type="button" :disabled="busy || dirty || (state === 'IN_PROGRESS' && priceReady[p.id] !== true)" @click="transition(p, state)">{{ label }}</button>
           <button v-if="productEditable(p, view.canEdit)" type="button" :disabled="busy || !changed(p) || othersDirty(p)" @click="save(p)">Зберегти обмір і витрати</button>
           <button v-if="p.state === 'IN_PROGRESS' && !p.confirmed && !p.rework?.active" type="button" :disabled="busy || dirty || !p.widthMm || !p.heightMm || p.lines.some(l => l.actual === '')" @click="finish(p)">Завершити виріб і підтвердити витрати</button>
         </div>

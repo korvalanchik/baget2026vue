@@ -1,7 +1,10 @@
 import { apiOrigin } from './auth.js'
 
-export async function previewEstimate(token, payload, signal) {
-  const response = await fetch(`${apiOrigin}/api/calculations/estimate-preview`, {
+export async function previewEstimate(token, payload, signal, branch, orderNo) {
+  const query = new URLSearchParams()
+  if (branch) query.set('branch', branch)
+  if (orderNo) query.set('orderNo', orderNo)
+  const response = await fetch(`${apiOrigin}/api/calculations/estimate-preview?${query}`, {
     method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(payload), signal,
   })
