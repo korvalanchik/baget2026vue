@@ -1,4 +1,5 @@
 <script setup>
+import { kyivToday, leadTime, shortageMaterials } from '../calculation/leadTime.js' 
 import PriceApprovalPanel from './PriceApprovalPanel.vue'
 import CustomerFinancePanel from './CustomerFinancePanel.vue'
 import { canAcceptCustomerPayment } from '../services/customerPayments.js'
@@ -54,6 +55,14 @@ const searchingCustomers = ref(false);
 const orderBusy = ref(false);
 const savedOrder = ref(null);
 const savedDirty = ref(false);
+const deadlineStart = ref(kyivToday());
+const shortages = computed(() => shortageMaterials(savedOrder.value));
+const timing = computed(() => leadTime(details.dueDate, deadlineStart.value, shortages.value.length > 0));
+const shortDate = value => value ? value.split('-').reverse().join('.') : '';
+function applySuggestedDate() {
+  if (orderBusy.value || (savedOrder.value && savedOrder.value.statusOrder !== 1)) return;
+  details.dueDate = timing.value.target;
+}
 const openNumber = ref("");
 const orderMessage = ref("");
 let requestKey = newRequestKey();
@@ -127,6 +136,7 @@ function acceptSaved(order, restore = false) {
   restoring = false;
 }
 async function saveOrder() {
+  deadlineStart.value = kyivToday();
   if (orderBusy.value) return;
   error.value = "";
   let payload;
@@ -183,6 +193,7 @@ async function openOrder() {
   }
 }
 async function reserveAgain() {
+  deadlineStart.value = kyivToday();
   if (orderBusy.value || !savedOrder.value) return;
   orderBusy.value = true;
   error.value = "";
@@ -349,6 +360,7 @@ async function calculate() {
   }
 }
 function reset() {
+  deadlineStart.value = kyivToday();
   if (savedDirty.value && !window.confirm("Очистити незбережені зміни?"))
     return;
   savedOrder.value = null;
@@ -443,6 +455,19 @@ onBeforeUnmount(() => {
               >Строк готовності<input v-model="details.dueDate" type="date"
             /></label>
           </div>
+          <aside class="deadline-info" :class="{ 'deadline-warning': timing.warning || shortages.length }" aria-live="polite">
+            <strong>Строк виконання: 5–7 робочих днів</strong>
+            <p>Від сьогодні: {{ shortDate(timing.earliest) }}–{{ shortDate(timing.normal) }}. Робочі дні: понеділок–п’ятниця, день оформлення не враховується.</p>
+            <p v-if="!savedOrder">Наявність матеріалів буде перевірено під час збереження та резервування.</p>
+            <template v-if="shortages.length">
+              <p><strong>У резерві є дефіцит. Орієнтир готовності — 10 робочих днів: {{ shortDate(timing.extended) }}.</strong> Строк залежить від постачання. Узгодьте його з клієнтом або замініть матеріал.</p>
+              <ul><li v-for="m in shortages" :key="`${m.productId}-${m.partNo}`">{{ m.productName }} · {{ m.description }}: не вистачає {{ amount(m.shortage) }} {{ units[m.unit] || m.unit }}</li></ul>
+              <p v-if="savedDirty">Склад або дані змінено. Дефіцит показано за останнім збереженим резервом; збережіть зміни для повторної перевірки.</p>
+            </template>
+            <p v-if="timing.warning" role="alert">Обрана дата раніша за {{ shortages.length ? '10' : '5' }} робочих днів. Можлива затримка виконання.</p>
+            <button v-if="timing.warning || (!details.dueDate && shortages.length)" type="button" @click="applySuggestedDate">Встановити {{ shortDate(timing.target) }}</button>
+            <p v-if="savedOrder && savedDirty">Щоб зафіксувати нову дату, збережіть зміни замовлення.</p>
+          </aside>
           <div v-if="!savedOrder" class="estimate-actions">
             <button
               type="button"
@@ -882,6 +907,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.deadline-info { margin: 12px 0; padding: 10px 12px; background: #f1f6f3; border: 1px solid #dce7df; border-radius: 8px; font-size: 13px; }
+.deadline-info p { margin: 5px 0; }
+.deadline-info ul { margin: 8px 0; padding-left: 20px; }
+.deadline-warning { background: #fff7e8; border-color: #e7c489; color: #714b14; }
+
 .estimate-page { max-width: 1280px; margin: 0 auto; padding: 16px 24px 32px; container-type: inline-size; color: #253c30; }
 .estimate-page .page-head { padding: 0; margin-bottom: 12px; }
 .estimate-page .page-head h1 { font-size: 24px; letter-spacing: -.4px; }

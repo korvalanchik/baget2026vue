@@ -87,7 +87,16 @@ function receive() { return run(async () => {
   const result = await api(`/orders/${document.value.id}/receipts`, payload)
   setDocument(result); await loadNeeds(); await loadOrders(); message.value = 'Прихід проведено. Резерви перераховано.'
 }) }
-onMounted(() => run(async () => { vendors.value = await api('/vendors'); await loadNeeds(); await loadOrders() }))
+onMounted(() => run(async () => {
+  // A supplier-list failure must not prevent loading production needs.
+  const results = await Promise.allSettled([
+    loadNeeds(),
+    api('/vendors').then(value => { vendors.value = value }),
+    loadOrders(),
+  ])
+  const failures = results.filter(result => result.status === 'rejected')
+  if (failures.length) throw new Error(failures.map(result => result.reason.message).join('; '))
+}))
 defineExpose({ open })
 </script>
 <template>
@@ -106,7 +115,12 @@ defineExpose({ open })
         <p v-if="Number(m.frameProfile) === 1">Активних філій зі зразком: {{ m.activeBranches }}. {{ m.replenishStock ? 'Поповнення запасу увімкнене.' : 'Лише забезпечення замовлень, без поповнення запасу.' }}</p><p v-if="m.purchaseBlocked" class="warning">Закупівлю заборонено або профіль знято з виробництва. Потреба до узгодження: {{ fmt(m.requiredPurchase) }} {{ stockUnits[m.unit] }}. Перевірте заміну.</p><button :disabled="busy || !stockUnits[m.unit] || m.purchaseBlocked" @click="add(m)">Додати до чернетки</button>
       </article>
     </div>
-    <p v-if="!rows.length">Матеріалів за цими умовами не знайдено.</p><div class="tools"><button :disabled="busy || page === 0" @click="turn(-1)">Назад</button><span>{{ page + 1 }}</span><button :disabled="busy || rows.length < 100" @click="turn(1)">Далі</button></div>
+    <p v-if="busy" role="status">Завантажуємо дані…</p>
+    <div v-else-if="!error && !rows.length" class="hint">
+      <p>Матеріалів за цими умовами не знайдено.</p>
+      <p v-if="onlyNeeded">Для поповнення задайте мінімальний і бажаний запас у картці матеріалу. Для багету також потрібен активний зразок хоча б на одній філії. Нестача за замовленнями показується незалежно від зразків.</p>
+      <button v-if="onlyNeeded" @click="onlyNeeded = false; q = ''; refresh(true)">Показати всі матеріали та налаштувати норми</button>
+    </div><div class="tools"><button :disabled="busy || page === 0" @click="turn(-1)">Назад</button><span>{{ page + 1 }}</span><button :disabled="busy || rows.length < 100" @click="turn(1)">Далі</button></div>
     <article v-if="selected" class="panel">
       <h3>{{ selected.description }} — норми запасу</h3>
       <div class="tools"><label>Мінімальний вільний запас<input v-model="policy.minimum" :disabled="busy" type="number" min="0" :step="selected.unit === 'PIECE' ? 1 : 0.000001"></label><label>Бажаний вільний запас<input v-model="policy.target" :disabled="busy" type="number" min="0" :step="selected.unit === 'PIECE' ? 1 : 0.000001"></label><button :disabled="busy" @click="savePolicy">Зберегти норми</button><button :disabled="busy" @click="selected = null">Закрити</button></div>
