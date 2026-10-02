@@ -2,7 +2,7 @@ import { apiOrigin } from './auth.js'
 export async function productInvoices(token, path = '', body) {
  const r = await fetch(`${apiOrigin}/api/product-invoices${path}`, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
  const data = await r.json().catch(() => null)
- if (!r.ok) throw new Error(data?.message || 'Не вдалося виконати операцію з рахунком. Оновіть список і перевірте результат.')
+ if (!r.ok) throw new Error(data?.message || (body ? 'Не вдалося виконати операцію з рахунком. Оновіть список і перевірте результат.' : `Не вдалося завантажити дані рахунків (HTTP ${r.status}). Спробуйте оновити вкладку.`))
  return data
 }
 export async function productInvoicePdf(token, id) {
