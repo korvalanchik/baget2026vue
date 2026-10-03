@@ -1,4 +1,6 @@
 <script setup>
+import PartnerReceivables from './PartnerReceivables.vue'
+import PartnerReconciliation from './PartnerReconciliation.vue'
 import { newRequestKey } from '../services/requestKey.js'
 import { computed, onMounted, ref } from 'vue'
 import { paymentAmounts } from '../calculation/billing.js'
@@ -6,7 +8,7 @@ import { productInvoices, productInvoicePdf } from '../services/productInvoices.
 const props = defineProps({ session: { type: Object, required: true } })
 const tab = ref('ready'), ready = ref([]), invoices = ref([]), page = ref(0), picked = ref([]), chosenInvoices = ref([])
 const busy = ref(false), error = ref(''), message = ref(''), detail = ref(null), options = ref({ branches: [], payers: [], partners: [] })
-const partnerFilter = ref('')
+const partnerFilter = ref(''), reconciliationPartner = ref(null)
 const payerSearch = ref(''), payer = ref(null), branch = ref(''), note = ref(''), amount = ref(''), advance = ref(''), paymentPending = ref(false)
 let retry = null, paymentRetry = null
 const money = n => Number(n || 0).toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -26,9 +28,11 @@ function choosePartner() {
 }
 const mergeTotal = computed(() => invoices.value.filter(i => chosenInvoices.value.includes(i.id)).reduce((s, i) => s + Number(i.debt), 0))
 async function run(fn) { if (busy.value) return; busy.value = true; error.value = ''; message.value = ''; try { await fn() } catch (e) { error.value = e.message } finally { busy.value = false } }
-async function load() { if (tab.value === 'ready') ready.value = await productInvoices(props.session.token, `/ready?page=${page.value}${partnerFilter.value ? `&partnerId=${partnerFilter.value}` : ''}`); else invoices.value = await productInvoices(props.session.token, `?page=${page.value}`) }
+async function load() { if (tab.value === 'invoice') return; if (tab.value === 'ready') ready.value = await productInvoices(props.session.token, `/ready?page=${page.value}${partnerFilter.value ? `&partnerId=${partnerFilter.value}` : ''}`); else invoices.value = await productInvoices(props.session.token, `?page=${page.value}`) }
 function refresh() { picked.value = []; chosenInvoices.value = []; return run(load) }
-function changeTab(t) { if (busy.value) return; tab.value = t; page.value = 0; refresh() }
+function changeTab(t) { if (busy.value) return; tab.value = t; page.value = 0; if (['ready', 'invoices'].includes(t)) refresh() }
+function reconcilePartner(id) { reconciliationPartner.value = Number(id); tab.value = 'reconciliation' }
+function openReceivable(id) { return run(async () => { detail.value = await productInvoices(props.session.token, `/${id}`); amount.value = ''; advance.value = ''; paymentPending.value = false; note.value = ''; tab.value = 'invoice' }) }
 function turn(n) { page.value += n; refresh() }
 function findPayer() { return run(async () => { options.value = await productInvoices(props.session.token, `/options?q=${encodeURIComponent(payerSearch.value)}`) }) }
 function useOwner(p) {
@@ -67,8 +71,14 @@ onMounted(() => run(async () => { options.value = await productInvoices(props.se
 <template>
  <section class="accountant">
   <h1>Рахунки за виробами</h1><p>Готові вироби з підтвердженими витратами та прийманням на склад. Старі рахунки залишаються у розділі клієнтів.</p>
-  <div class="tools"><button :disabled="busy" @click="changeTab('ready')">Готові до рахунку</button><button :disabled="busy" @click="changeTab('invoices')">Рахунки / об’єднання</button><button :disabled="busy" @click="refresh">Оновити</button></div>
+  <div class="tools"><button :disabled="busy" @click="changeTab('ready')">Готові до рахунку</button><button :disabled="busy" @click="changeTab('invoices')">Рахунки / об’єднання</button><button :disabled="busy" @click="changeTab('receivables')">Неоплачені рахунки посередників</button><button :disabled="busy" @click="changeTab('reconciliation')">Звірка з посередником</button><button v-if="['ready', 'invoices'].includes(tab)" :disabled="busy" @click="refresh">Оновити</button></div>
+  <p v-if="tab === 'receivables' && error" role="alert">{{ error }}</p>
+  <PartnerReceivables v-if="tab === 'receivables'" :session="session" @invoice="openReceivable" @reconcile="reconcilePartner" />
+  <PartnerReconciliation v-else-if="tab === 'reconciliation'" :session="session" :initial-partner="reconciliationPartner" />
+  <template v-else>
   <p v-if="error" role="alert">{{ error }}</p><p v-if="message" role="status">{{ message }}</p>
+  <button v-if="tab === 'invoice'" :disabled="busy" @click="changeTab('receivables')">Повернутися до неоплачених рахунків</button>
+  <template v-if="tab !== 'invoice'">
   <div v-if="tab === 'ready'" class="tools"><label>Фірма-посередник<select v-model="partnerFilter" :disabled="busy" @change="choosePartner"><option value="">Усі доступні вироби</option><option v-for="p in options.partners" :key="p.id" :value="p.id">{{ p.name }}</option></select></label><p>Роздрібна сума — для клієнта. До рахунку фірмі — реселлерська вартість за підтвердженими витратами.</p></div>
   <div class="table"><table v-if="tab === 'ready'"><thead><tr><th>Обрати</th><th>Замовлення / виріб</th><th>Клієнт</th><th>Філія</th><th>Роздрібна сума</th><th>До рахунку</th></tr></thead><tbody><tr v-for="p in ready" :key="p.productId"><td><input v-model="picked" type="checkbox" :value="p.productId" :disabled="busy || Boolean(p.billingError)" :aria-label="`Вибрати виріб ${p.productName} замовлення ${p.orderNo}`"></td><td>{{ p.orderNo }} · {{ p.productName }}</td><td>{{ p.customerName }} <button :disabled="busy" @click="useOwner(p)">{{ p.commerceMode === 'RESELLER' ? 'Фірма — платник' : 'Цей клієнт — платник' }}</button></td><td>{{ p.branchName }}</td><td>{{ money(p.retailAmount) }}</td><td><template v-if="!p.billingError">{{ money(p.amount) }}<small v-if="p.commerceMode === 'RESELLER'"> · реселлерська</small></template><span v-else role="alert">{{ p.billingError }}</span></td></tr></tbody></table>
   <table v-else><thead><tr><th>Об’єднати</th><th>Рахунок</th><th>Платник</th><th>Сума</th><th>Борг</th><th>Стан</th></tr></thead><tbody><tr v-for="i in invoices" :key="i.id"><td><input v-model="chosenInvoices" type="checkbox" :value="i.id" :disabled="busy || i.lifecycle !== 'ACTIVE' || Number(i.debt) <= 0 || i.status === 'CANCELLED'" :aria-label="`Обрати рахунок ${i.invoiceNo}`"></td><td><button :disabled="busy" @click="open(i.id)">{{ i.invoiceNo }}</button></td><td>{{ i.payerName }}</td><td>{{ money(i.amount) }}</td><td>{{ money(i.debt) }}</td><td>{{ i.lifecycle === 'MERGED' ? 'Об’єднаний (архів)' : status[i.status] }}</td></tr></tbody></table></div>
@@ -83,14 +93,16 @@ onMounted(() => run(async () => { options.value = await productInvoices(props.se
    <label>Філія обліку<select v-model="branch"><option value="">Оберіть філію</option><option v-for="b in billingBranches" :key="b.id" :value="b.id">{{ b.name }}</option></select></label>
    <label>Примітка<textarea v-model="note" maxlength="1000"></textarea></label><button @click="submit(tab !== 'ready')">{{ tab === 'ready' ? 'Виставити рахунок за вибраними виробами' : 'Об’єднати вибрані рахунки' }}</button>
   </fieldset>
+  </template>
   <article v-if="detail"><h2>Рахунок № {{ detail.invoiceNo }}</h2><p v-if="detail.partnerId"><strong>Рахунок фірмі-посереднику за реселлерською вартістю</strong></p><p>Платник: {{ detail.payerName }} · {{ detail.lifecycle === 'MERGED' ? 'Архівний, об’єднаний' : status[detail.status] }}</p><p>Сума: {{ money(detail.amount) }} грн · залишок: {{ money(detail.debt) }} грн</p><button :disabled="busy" @click="pdf">Завантажити PDF</button><button :disabled="busy" @click="open(detail.id)">Оновити рахунок</button>
    <div class="table"><table><thead><tr><th>Замовлення / виріб</th><th>{{ detail.partnerId ? 'Реселлерська вартість' : 'Підтверджена вартість' }}</th><th>До цього рахунку</th><th>Походження</th></tr></thead><tbody><tr v-for="p in detail.products" :key="p.productId"><td>{{ p.orderNo }} · виріб {{ p.productId }} ({{ p.snapshot.widthMm }} × {{ p.snapshot.heightMm }} мм, {{ p.snapshot.configuration?.draft?.form?.productQuantity || 1 }} екз.)</td><td>{{ money(p.originalAmount) }}</td><td>{{ money(p.amount) }}</td><td><button v-if="p.sourceInvoiceId" :disabled="busy" @click="open(p.sourceInvoiceId)">Рахунок {{ p.sourceInvoiceNo }}</button><span v-else>Первинне виставлення</span></td></tr></tbody></table></div>
    <p v-for="target in detail.mergedInto" :key="target.id">Залишок перенесено до <button :disabled="busy" @click="open(target.id)">рахунку № {{ target.invoiceNo }}</button></p>
    <details><summary>Історія рахунку</summary><p v-for="(e, index) in detail.history" :key="index">{{ e.createdAt }} · {{ ({ INVOICE: 'Виставлення', PAYMENT: 'Оплата', ADVANCE_ALLOCATION: 'Зарахування авансу', INVOICE_MERGE_IN: 'Перенесення до нового рахунку', INVOICE_MERGE_OUT: 'Прийнятий борг' })[e.type] || e.type }}: {{ money(e.amount) }} грн. {{ e.note }}</p></details>
    <p>При об’єднанні залишок боргу розподіляється пропорційно між позиціями. Це розподіл залишку для нового документа, а не історія оплати конкретного виробу.</p>
-   <fieldset v-if="detail.lifecycle === 'ACTIVE' && detail.status !== 'CANCELLED' && Number(detail.debt) > 0" :disabled="busy || paymentPending"><legend>Оплата / зарахування авансу</legend><p>Доступний аванс платника: {{ money(detail.availableAdvance) }} грн.</p><div class="tools"><label>Нова оплата, грн<input v-model="amount" type="number" min="0" step="0.01"></label><label>Зарахувати аванс, грн<input v-model="advance" type="number" min="0" step="0.01"></label></div><button @click="payment">Провести операцію</button></fieldset>
+   <fieldset v-if="detail.lifecycle === 'ACTIVE' && detail.status !== 'CANCELLED' && Number(detail.debt) > 0" :disabled="busy || paymentPending"><legend>Оплата / зарахування авансу</legend><p>Доступний аванс платника: {{ money(detail.availableAdvance) }} грн.</p><div class="tools"><label>Нова оплата, грн<input v-model="amount" type="number" min="0" step="0.01"></label><label>Зарахувати аванс, грн<input v-model="advance" type="number" min="0" step="0.01"></label></div><label v-if="tab === 'invoice'">Примітка до оплати<textarea v-model="note" maxlength="1000"></textarea></label><button @click="payment">Провести операцію</button></fieldset>
    <p v-if="paymentPending" role="alert">Перед повторною оплатою оновіть рахунок і перевірте результат попередньої операції.</p>
   </article>
+  </template>
  </section>
 </template>
 <style scoped>
