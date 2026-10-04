@@ -5,12 +5,15 @@ import OrderApprovalsDesk from "./components/OrderApprovalsDesk.vue";
 import AccountantDesk from "./components/AccountantDesk.vue";
 import MaterialsDesk from "./components/MaterialsDesk.vue";
 import WarehouseDesk from "./components/WarehouseDesk.vue";
+import CrmQrIssueDesk from "./components/CrmQrIssueDesk.vue";
+import { canAcceptCustomerPayment } from "./services/customerPayments.js";
 import ProductTracking from "./components/ProductTracking.vue";
 const scannedProduct = new URLSearchParams(window.location.search).get('product') || '';
 import LoginPage from "./components/LoginPage.vue";
 import OrderForm from "./components/OrderForm.vue";
 import EstimateCalculator from "./components/EstimateCalculator.vue";
 const orderTab = ref("estimate");
+const scanTracking = ref(false), scanBusy = ref(false);
 import CustomersDesk from "./components/CustomersDesk.vue";
 import WorkshopDesk from "./components/WorkshopDesk.vue";
 import { canAccess, clearSession, restoreSession } from "./services/auth.js";
@@ -94,6 +97,7 @@ function completeLogin(newSession) {
     : allowedNavigation.value[0]?.id;
 }
 function signOut() {
+  scanBusy.value = false; scanTracking.value = false;
   menuOpen.value = false;
   clearSession();
   session.value = null;
@@ -183,7 +187,11 @@ function signOut() {
       <AccountantDesk v-else-if="activeSection === 'accountant'" :session="session" />
       <MaterialsDesk v-else-if="activeSection === 'materials'" :session="session" />
       <WarehouseDesk v-else-if="activeSection === 'warehouse'" :session="session" />
-      <section v-else-if="activeSection === 'scanning'" style="padding:24px"><h1>Сканування виробу</h1><ProductTracking :session="session" :initial-token="scannedProduct" /></section>
+      <section v-else-if="activeSection === 'scanning'" style="padding:16px">
+        <button v-if="canAcceptCustomerPayment(session)" type="button" :disabled="scanBusy" style="min-height:44px;margin-bottom:12px" @click="scanTracking = !scanTracking">{{ scanTracking ? 'До видачі клієнту' : 'Переміщення та історія виробу' }}</button>
+        <CrmQrIssueDesk v-if="canAcceptCustomerPayment(session) && !scanTracking" :session="session" :initial-token="scannedProduct" @busy="scanBusy = $event" />
+        <template v-else><h1>Сканування виробу</h1><ProductTracking :session="session" :initial-token="scannedProduct" /></template>
+      </section>
       <section v-else class="placeholder-page">
         <p>
           Розділ «{{

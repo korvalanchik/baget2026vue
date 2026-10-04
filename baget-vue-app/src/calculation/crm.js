@@ -1,4 +1,4 @@
-export const outcomes = { NOTIFIED: 'Повідомлено', NO_ANSWER: 'Не відповів', CALL_BACK: 'Передзвонити', AGREEMENT: 'Домовленість', NOTE: 'Примітка', DONE: 'Домовленість завершено', PARTNER: 'Ознака партнера', PICKUP_NOTIFIED: 'Повідомлено про готовність', PICKUP_NO_ANSWER: 'Не відповів щодо отримання', PICKUP_AGREED: 'Домовлено про отримання', PICKUP_CLEAR: 'Дату отримання прибрано' }
+export const outcomes = { PICKUP_ISSUED: 'Видано клієнту', NOTIFIED: 'Повідомлено', NO_ANSWER: 'Не відповів', CALL_BACK: 'Передзвонити', AGREEMENT: 'Домовленість', NOTE: 'Примітка', DONE: 'Домовленість завершено', PARTNER: 'Зміна колишньої позначки «Партнер»', PICKUP_NOTIFIED: 'Повідомлено про готовність', PICKUP_NO_ANSWER: 'Не відповів щодо отримання', PICKUP_AGREED: 'Домовлено про отримання', PICKUP_CLEAR: 'Дату отримання прибрано' }
 export const locations = { BRANCH: 'На філії', WORKSHOP: 'У майстерні', WAREHOUSE: 'На складі', CUSTOMER: 'Отримано клієнтом' }
 export const productionStates = { WAITING: 'Очікує приймання', ACCEPTED: 'Прийнято майстром', IN_PROGRESS: 'У роботі', PAUSED: 'Призупинено', COMPLETED: 'Готовий', STOPPED: 'Зупинено' }
 export const orderStates = { 0: 'Не вказано', 1: 'Прийнято', 2: 'У роботі', 3: 'Вироблено', 4: 'Оплачено', 5: 'Відмова клієнта', 6: 'Розраховано', 7: 'До оплати', 8: 'Рахунок-фактура', 9: 'Частково оплачено', 10: 'Неможливе виконання', 11: 'На філії', 12: 'Отримано клієнтом' }
@@ -18,7 +18,7 @@ export function contactPayload(form, key, revision) {
 export function groupedOrders(rows) {
   const groups = new Map()
   for (const row of rows) {
-    if (!groups.has(row.orderNo)) groups.set(row.orderNo, { orderNo: row.orderNo, status: row.status, products: [], partial: false })
+    if (!groups.has(row.orderNo)) groups.set(row.orderNo, { orderNo: row.orderNo, status: row.status, commerceMode: row.commerceMode, partnerName: row.partnerName, products: [], partial: false })
     if (row.productId) groups.get(row.orderNo).products.push(row)
   }
   for (const order of groups.values()) {
