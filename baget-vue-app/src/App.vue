@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
-import CommercialDesk from "./components/CommercialDesk.vue";
+import RewardsDesk from "./components/RewardsDesk.vue";
+import SettingsDesk from "./components/SettingsDesk.vue";
 import OrderApprovalsDesk from "./components/OrderApprovalsDesk.vue";
 import AccountantDesk from "./components/AccountantDesk.vue";
 import MaterialsDesk from "./components/MaterialsDesk.vue";
@@ -82,12 +83,13 @@ const navigation = [
   { id: "materials", icon: "▱", label: "Матеріали", access: "materials:read" },
   { id: "scanning", icon: "↗", label: "Сканування", access: "scanning:read" },
   { id: "accountant", icon: "▧", label: "Рахунки за виробами", access: "finance:read" },
+  { id: "rewards", icon: "₴", label: "Винагороди", access: "scanning:read" },
   { id: "finance", icon: "₴", label: "Фінанси", access: "finance:read" },
   { id: "settings", icon: "⚙", label: "Налаштування" },
 ];
 const isAdmin = computed(() => session.value?.roles?.includes("ROLE_ADMIN") === true);
 const allowedNavigation = computed(() =>
-  navigation.filter((item) => item.id === "settings" ? isAdmin.value : canAccess(session.value, item.access)),
+  navigation.filter((item) => item.id === "rewards" ? canAcceptCustomerPayment(session.value) : item.id === "settings" ? isAdmin.value : canAccess(session.value, item.access)),
 );
 function completeLogin(newSession) {
   menuOpen.value = false;
@@ -180,8 +182,9 @@ function signOut() {
         <OrderForm v-else :session="session" />
         </KeepAlive>
       </section>
-      <section v-else-if="activeSection === 'settings' && isAdmin" class="settings-page"><h1>Налаштування</h1><CommercialDesk :session="session" /></section>
+      <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
       <OrderApprovalsDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" />
+      <RewardsDesk v-else-if="activeSection === 'rewards'" :session="session" />
       <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" />
       <WorkshopDesk v-else-if="activeSection === 'workshop'" :session="session" @open-finance="activeSection = 'customers'" />
       <AccountantDesk v-else-if="activeSection === 'accountant'" :session="session" />

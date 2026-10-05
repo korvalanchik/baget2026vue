@@ -81,6 +81,12 @@ function changedDraft() {
   if (savedOrder.value) savedDirty.value = true;
   orderMessage.value = "";
 }
+// Clear an unavailable option when its material context changes.
+watch(artworks, () => {
+  for (const a of artworks.value) {
+    if (a.antiFrame && (a.withFrame || a.underframePartNo || !a.glass.length || !a.backings.some(x => Number(x.partNo) === 4460))) a.antiFrame = false;
+  }
+}, { deep: true, flush: "sync" });
 watch(artworks, changedDraft, { deep: true, flush: "sync" });
 watch(details, changedDraft, { deep: true, flush: "sync" });
 async function findCustomers() {
@@ -571,7 +577,7 @@ onBeforeUnmount(() => {
               placeholder="Опис оформлення, прийняті речі клієнта…"
             ></textarea>
           </label>
-          <p v-if="!a.withFrame" class="estimate-muted">Скло, задник і паспарту можна замовити без рами. Крокодил для задника та кліпси антирами можна додати нижче. Шнурок, лапки та клей для рами не додаються.</p>
+          <p v-if="!a.withFrame" class="estimate-muted">Без рами: для підрамника доступні підвіси 099/силові та шнурок; для задника — крокодили. Антирама: скло/дзеркало та ДВП, без рами й підрамника.</p>
           <div class="estimate-groups">
             <fieldset v-for="group in groups" :key="group.key">
               <legend>{{ group.label }}</legend>
@@ -707,11 +713,11 @@ onBeforeUnmount(() => {
             </p>
           </fieldset>
           <div class="estimate-grid">
-            <label class="estimate-check" v-if="!a.withFrame"><input v-model="a.antiFrame" type="checkbox" /> Антирама — кліпси (1 на 200 мм периметру, мінімум 4)</label>
-            <label class="estimate-check" v-if="!a.withFrame && a.backings.length"><input v-model="a.includeBackingHanger" type="checkbox" /> Додати крокодил на задник</label>
+            <label class="estimate-check" v-if="!a.withFrame && !a.underframePartNo && a.glass.length && a.backings.some(s => Number(s.partNo) === 4460)"><input v-model="a.antiFrame" type="checkbox" /> Антирама — кліпси (1 на 200 мм периметру, мінімум 4)</label>
+            <label class="estimate-check" v-if="!a.withFrame && (a.backings.length || a.underframePartNo)"><input v-model="a.includeBackingHanger" type="checkbox" /> {{ a.underframePartNo ? 'Додати підвіси / шнурок на підрамник' : 'Додати крокодил на задник' }}</label>
             <label class="estimate-check" v-if="a.withFrame && a.underframePartNo"><input v-model="a.includeUnderframeFasteners" type="checkbox" /> Кріплення підрамника до багета (1 на 400 мм, мінімум 4)</label>
           </div>
-          <fieldset v-if="a.withFrame || (a.includeBackingHanger && a.backings.length)">
+          <fieldset v-if="a.withFrame || (a.includeBackingHanger && (a.backings.length || a.underframePartNo))">
             <legend>Кріплення</legend>
             <div class="estimate-grid">
               <label
@@ -724,7 +730,7 @@ onBeforeUnmount(() => {
               <label v-if="a.hangerMode === 'MANUAL'"
                 >Тип підвісу<select v-model="a.hangerPartNo" required>
                   <option value="" disabled>Оберіть</option>
-                  <option v-for="[id, name] in (a.withFrame ? hangers : hangers.filter(([id]) => [27580,14450].includes(id)))" :key="id" :value="id">
+                  <option v-for="[id, name] in (a.withFrame ? hangers : hangers.filter(([id]) => a.underframePartNo ? [14460,29650].includes(id) : [27580,14450].includes(id)))" :key="id" :value="id">
                     {{ name }}
                   </option>
                 </select></label
@@ -738,7 +744,7 @@ onBeforeUnmount(() => {
                   step="1"
                   placeholder="Автоматично"
               /></label>
-              <label v-if="a.withFrame"
+              <label v-if="a.withFrame || a.underframePartNo"
                 >Шнурок<select v-model="a.cordMode">
                   <option value="AUTO">Автоматично за підвісами</option>
                   <option value="YES">Додати шнурок</option>
@@ -801,8 +807,6 @@ onBeforeUnmount(() => {
       <p v-if="error" role="alert" class="form-message">{{ error }}</p>
     </form>
     <p v-if="orderMessage" role="status">{{ orderMessage }}</p>
-    <CustomerFinancePanel v-if="savedOrder && canAcceptCustomerPayment(session)" :key="savedOrder.orderNo" :session="session" :order-no="Number(savedOrder.orderNo)" />
-    <template v-if="savedOrder"><PriceApprovalPanel v-for="p in savedOrder.products" :key="`${p.id}-${savedOrder.revision}`" :session="session" :product-id="Number(p.id)" :revision="Number(savedOrder.revision)" /></template>
     <section v-if="savedOrder" class="form-card">
       <h2>
         Замовлення №{{ savedOrder.orderNo }} · {{ money(savedOrder.total) }}
@@ -817,6 +821,15 @@ onBeforeUnmount(() => {
         :key="product.id"
       >
         <h3>Виріб {{ index + 1 }} · {{ money(product.total) }}</h3>
+        <article v-for="component in product.calculation?.items || []" :key="component.clientItemId">
+          <div v-for="(line, lineIndex) in calculation(component).lines" :key="lineIndex" class="estimate-result-line">
+            <div><strong>{{ roles[line.role] || line.role }}</strong><p>{{ line.calculation.description }}</p>
+              <small>{{ amount(line.calculation.totalConsumption) }} {{ units[line.calculation.unit] || line.calculation.unit }} × {{ money(line.calculation.unitPrice) }}</small>
+            </div><strong>{{ money(line.calculation.amount) }}</strong>
+          </div>
+          <p v-if="Number(calculation(component).roundingAdjustment) !== 0">Округлення: {{ money(calculation(component).roundingAdjustment) }}</p>
+        </article>
+        <details><summary>Резерв і наявність матеріалів</summary>
         <p v-if="savedOrder.statusOrder !== 5 && !product.materials.length">
           Матеріали для резерву відсутні.
         </p>
@@ -841,6 +854,7 @@ onBeforeUnmount(() => {
             >
           </div>
         </div>
+        </details>
       </template>
       <p>
         Дефіцит не скасовує замовлення. Узгодьте строк готовності з урахуванням
@@ -903,6 +917,9 @@ onBeforeUnmount(() => {
         <span>Загальна вартість</span><strong>{{ money(result.total) }}</strong>
       </div>
     </section>
+    <template v-if="savedOrder"><PriceApprovalPanel v-for="p in savedOrder.products" :key="`${p.id}-${savedOrder.revision}`" :session="session" :product-id="Number(p.id)" :revision="Number(savedOrder.revision)" /></template>
+    <CustomerFinancePanel v-if="savedOrder && canAcceptCustomerPayment(session)" :key="savedOrder.orderNo" :session="session" :order-no="Number(savedOrder.orderNo)" />
+
   </section>
 </template>
 

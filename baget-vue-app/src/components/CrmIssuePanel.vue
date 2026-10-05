@@ -25,6 +25,7 @@ async function refresh() {
  data.value = await crm(props.session.token, path)
  chosen.value = chosen.value.filter(id => data.value.products.some(p => p.id === id && p.canIssue))
  checked.value = false; confirm.value = false
+ if (!finance.value) finance.value = data.value.products.find(p => p.payment)?.payment || null
  if (!initialApplied && props.initialProductId) { initialApplied = true; focusProduct(props.initialProductId) }
 }
 function focusProduct(id) {
@@ -73,7 +74,7 @@ onMounted(load)
 </script>
 <template>
  <section class="issue-panel">
-  <header><div><h3>Видача замовлення № {{ orderNo }}</h3><p>{{ customer.company }} · {{ customer.branchName }}</p></div><button type="button" :disabled="blocked || !!pending" @click="emit('close')">Закрити видачу</button></header>
+  <header><div><h3>Оплата та видача · замовлення № {{ orderNo }}</h3><p>{{ customer.company }} · {{ customer.branchName }}<span v-if="customer.mobile || customer.phone"> · {{ customer.mobile || customer.phone }}</span></p></div><button type="button" :disabled="blocked || !!pending" @click="emit('close')">Закрити видачу</button></header>
   <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p><p v-if="busy" role="status">Перевірка / збереження…</p>
   <div v-if="pending" class="confirmation"><p>Результат попередньої видачі ще не підтверджено. Повторіть той самий запит — повторного списання чи видачі не буде.</p><p>Вироби: {{ pending.products.map(p => p.productId).join(', ') }}</p><button :disabled="blocked" @click="issue">Перевірити результат видачі</button></div>
   <button :disabled="blocked" @click="load">Оновити готовність і оплату</button>
@@ -82,18 +83,19 @@ onMounted(load)
    <p v-if="!data.products.length">Для цього замовлення немає виробів нового формату. Автоматична видача старого замовлення тут недоступна.</p>
    <fieldset :disabled="blocked || !!pending || confirm"><legend>Що забирає клієнт</legend>
     <article v-for="p in data.products" :key="p.id" :class="['product', { focused: focused === p.id }]"><p v-if="focused === p.id" class="scan-mark">Виріб з QR-коду</p><p>Місце: {{ locations[p.location] || p.location }}<span v-if="p.pending"> → {{ locations[p.pending] || p.pending }} (передача не завершена)</span></p><label class="choice"><input v-model="chosen" type="checkbox" :value="p.id" :disabled="!p.canIssue"><strong>{{ p.productName }} · виріб № {{ p.id }}</strong></label><p v-if="p.widthMm && p.heightMm">{{ p.widthMm }} × {{ p.heightMm }} мм<span v-if="p.amount != null"> · вартість виробу {{ money(p.amount) }} грн</span></p><p v-if="p.blocked" class="muted">{{ p.blocked }}</p>
-     <template v-if="p.payment"><p>{{ p.payment.message }}</p><p v-if="p.payment.invoiceNo"><strong>Рахунок № {{ p.payment.invoiceNo }} · залишок до оплати {{ money(p.payment.debt) }} грн</strong></p><p v-if="p.payment.deferred">Дозволено відстрочку до {{ p.payment.dueDate }}.</p><button type="button" @click="openFinance(p)">{{ p.payment.externalSettlement ? 'Перевірити розрахунок із клієнтом' : 'Оплата, аванс і фінансовий стан' }}</button></template>
+     <template v-if="p.payment"><p>{{ p.payment.message }}</p><p v-if="p.payment.invoiceNo"><strong>Рахунок № {{ p.payment.invoiceNo }} · залишок до оплати {{ money(p.payment.debt) }} грн</strong></p><p v-if="p.payment.deferred">Дозволено відстрочку до {{ p.payment.dueDate }}.</p><button v-if="!finance || finance.invoiceId !== p.payment.invoiceId || finance.customerId !== p.payment.customerId" type="button" @click="openFinance(p)">{{ p.payment.externalSettlement ? 'Розрахунок із посередником' : 'Відкрити оплату цього рахунку' }}</button></template>
     </article>
     <label v-if="external" class="choice"><input v-model="checked" type="checkbox"> Я перевірив розрахунок клієнта з посередником і підтверджую видачу</label>
     <label class="note">Примітка до видачі<input v-model="note" maxlength="1000" placeholder="Необов’язково"></label>
    </fieldset>
    <p class="muted">Залишок показано за рахунком, який може охоплювати кілька виробів. Доступний аванс потрібно явно зарахувати через оплату.</p>
-   <div v-if="finance && !pending && !confirm" class="finance"><CustomerFinancePanel :key="`${finance.customerId}-${finance.invoiceId || orderNo}`" :session="session" :customer-id="Number(finance.customerId)" :branch-no="Number(customer.branchNo)" :order-no="finance.externalSettlement ? orderNo : null" :invoice-id="finance.invoiceId ? Number(finance.invoiceId) : null" @busy="paymentBusy" @paid="paymentSaved" /><button type="button" :disabled="blocked" @click="finance = null">Згорнути фінанси</button></div>
+   <div v-if="finance && !pending && !confirm" class="finance"><CustomerFinancePanel :key="`${finance.customerId}-${finance.invoiceId || orderNo}`" :session="session" :customer-id="Number(finance.customerId)" :branch-no="Number(customer.branchNo)" :order-no="orderNo" :invoice-id="finance.invoiceId ? Number(finance.invoiceId) : null" @busy="paymentBusy" @paid="paymentSaved" /></div>
    <div v-if="confirm && !pending" class="confirmation"><strong>Підтвердіть фактичну передачу клієнту</strong><ul><li v-for="p in selected" :key="p.id">{{ p.productName }} · № {{ p.id }}</li></ul><p>В історії буде збережено, хто й коли видав ці вироби.</p><button :disabled="blocked" @click="issue">Підтвердити видачу</button><button :disabled="blocked" @click="confirm = false">Повернутися до вибору</button></div>
-   <button v-else-if="!pending" class="primary" :disabled="blocked || !canSave" @click="review">Видати вибрані вироби ({{ selected.length }})</button>
+   <button v-else-if="!pending" class="primary" :disabled="blocked || !canSave" @click="review">Видати клієнту ({{ selected.length }})</button>
   </template>
  </section>
 </template>
 <style scoped>
 .issue-panel{padding:16px;border:1px solid #88afb2;border-radius:10px;background:#f8fcfc;margin-bottom:18px}header{display:flex;justify-content:space-between;gap:10px;align-items:start}h3{margin:0}p{font-size:13px;line-height:1.5}.focused{background:#e9f5f5;border-left:3px solid #185c63;padding-left:9px!important}.scan-mark{font-weight:700;color:#185c63}summary{cursor:pointer;min-height:44px;align-content:center}.product{padding:12px 0;border-bottom:1px solid #dce4e9}.choice{display:flex;gap:9px;align-items:start;font-size:13px;margin:8px 0}.choice input{width:18px;height:18px;flex-shrink:0}.note{display:grid;gap:5px;font-size:13px;margin-top:12px}fieldset{border:0;padding:0;min-width:0;margin-top:12px}legend{font-weight:600;font-size:14px}button,input{font:inherit;padding:9px;border:1px solid #bdccd4;border-radius:7px;max-width:100%;box-sizing:border-box}button{min-height:44px;font-size:13px;margin:3px;cursor:pointer}button:disabled{opacity:.5}.primary{background:#185c63;color:white}.muted{color:#62717d}.confirmation{padding:14px;margin-top:12px;background:#fff4d8;border-radius:8px}[role=alert]{color:#a22}[role=status]{color:#276039}@media(max-width:600px){header{flex-wrap:wrap}.issue-panel{padding:10px}input{font-size:16px}}
+.issue-panel,.finance,.product{min-width:0;overflow-wrap:anywhere}.finance{margin:12px 0}.primary{width:100%;margin:12px 0}button{white-space:normal}@media(max-width:600px){button{width:100%;margin:5px 0}header{display:block}.choice strong{overflow-wrap:anywhere}}
 </style>

@@ -158,7 +158,7 @@ export function buildEstimate(artworks) {
             throw new Error("Розмір із паспарту перевищує 100000 мм.");
         }
       }
-      if (a.withFrame || (a.includeBackingHanger && a.backings.length)) {
+      if (a.withFrame || (a.includeBackingHanger && (a.backings.length || a.underframePartNo))) {
         if (a.withFrame && Number(a.framePartNo) === 33190) throw new Error("Для виробу без рами вимкніть «Оформлення в раму».");
         const suspension = {
           hangerMode: a.hangerMode,
@@ -197,14 +197,14 @@ export function buildEstimate(artworks) {
           throw new Error("Оберіть режим шнурка.");
         if (a.cordMode !== "AUTO")
           suspension.includeCord = a.cordMode === "YES";
-        if (!a.withFrame) {
+        if (!a.withFrame && !a.underframePartNo) {
           if (suspension.hangerMode === 'MANUAL' && ![27580,14450].includes(suspension.hangerPartNo)) throw new Error('Без рами оберіть підвіс крокодил.');
           suspension.includePozzi = false; delete suspension.pozziPerProduct; suspension.includeCord = false;
         }
         product.suspension = suspension;
       }
-      if (!a.withFrame && a.antiFrame) {
-        if (!a.glass.length || !a.backings.length) throw new Error('Для антирами потрібні скло/дзеркало та задник.');
+      if (a.antiFrame) {
+        if (a.withFrame || a.underframePartNo || !a.glass.length || !a.backings.some(s => Number(s.partNo) === 4460)) throw new Error('Для антирами потрібні скло/дзеркало та ДВП, без рами й підрамника.');
         product.antiFrame = true;
       }
       const rows = (a.withFrame || groups.some(g => product[g.key].length))
@@ -248,6 +248,11 @@ export function buildEstimate(artworks) {
         product.includeUnderframeFasteners = true;
         product.underframePartNo = underframe;
       }
+      const underframeSuspension = !a.withFrame && underframe ? product.suspension : undefined;
+      if (underframeSuspension) {
+        if (underframeSuspension.hangerMode === 'MANUAL' && [27580, 14450].includes(underframeSuspension.hangerPartNo)) throw new Error('Для підрамника крокодили не використовуються. Оберіть підвіс 099 або силовий.');
+        delete product.suspension;
+      }
       if (a.mountingType === "UNDERFRAME") {
         if (!underframe)
           throw new Error("Для натяжки на підрамник оберіть підрамник.");
@@ -259,6 +264,7 @@ export function buildEstimate(artworks) {
             mountingType: "UNDERFRAME",
             canvasType: a.artworkType,
             underframePartNo: underframe,
+            ...(underframeSuspension ? { suspension: underframeSuspension } : {}),
             ...(canvas ? { canvasPartNo: canvas } : {}),
           },
         });
@@ -271,6 +277,7 @@ export function buildEstimate(artworks) {
               ...size,
               productType: "UNDERFRAME",
               underframePartNo: underframe,
+            ...(underframeSuspension ? { suspension: underframeSuspension } : {}),
             },
           });
         if (a.mountingType === "PLANE")
@@ -316,17 +323,17 @@ export function sectionTitle(clientItemId, artworks) {
 // Verify explicit choices so an older backend cannot silently ignore includeCord.
 export function verifyCordChoices(result, request) {
   for (const item of request.items) {
-    const choice = item.product?.suspension?.includeCord;
+    const choice = (item.product || item.mounting)?.suspension?.includeCord;
     if (choice == null) continue;
     const priced = result.items.find(
       (r) => r.clientItemId === item.clientItemId,
     );
-    const hasCord = priced?.product?.lines?.some(
+    const hasCord = (priced?.product || priced?.mounting)?.lines?.some(
       (line) => line.role === "CORD",
     );
     if (hasCord !== choice)
       throw new Error(
-        "Сервер не підтвердив вибір шнурка. Оновіть backend із пакета кроку 12 v2.",
+        "Сервер не підтвердив вибір шнурка. Перевірте сумісність версій фронтенду та сервера.",
       );
   }
 }

@@ -1,0 +1,12 @@
+<script setup>
+defineProps({ title: { type: String, required: true }, description: { type: String, default: '' } })
+</script>
+<template>
+ <details class="settings-section">
+  <summary><span class="heading"><strong>{{ title }}</strong><span class="description">{{ description }}</span></span><span class="indicator" aria-hidden="true"></span></summary>
+  <div class="settings-content"><slot /></div>
+ </details>
+</template>
+<style scoped>
+.settings-section{border:1px solid #d8e3e8;border-radius:12px;background:#fff;overflow:clip}.settings-section[open]{border-color:#91b6bc}summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 20px;cursor:pointer;list-style:none;min-height:64px;box-sizing:border-box}summary::-webkit-details-marker{display:none}summary:hover{background:#f5f9fa}summary:focus-visible{outline:3px solid #79bbc4;outline-offset:-3px}.heading{display:grid;gap:6px;min-width:0}.heading strong{font-size:17px;color:#233442}.description{font-size:13px;color:#617580;line-height:1.5}.indicator{width:9px;height:9px;border-right:2px solid #557c85;border-bottom:2px solid #557c85;transform:rotate(45deg);flex-shrink:0;margin:0 3px 5px}.settings-section[open] .indicator{transform:rotate(225deg);margin-top:6px}.settings-content{padding:18px 20px;border-top:1px solid #e1e9ed}.settings-content :deep(.rewards){padding:0;margin:0;max-width:none}.settings-content :deep(h2){display:none}.settings-content :deep(header){justify-content:flex-end}.settings-content :deep(p){font-size:14px;line-height:1.6}.settings-content :deep(label){font-size:13px;gap:6px}.settings-content :deep(button),.settings-content :deep(input),.settings-content :deep(select){font:inherit;font-size:14px;min-height:44px;border:1px solid #bdccd4;border-radius:7px;padding:9px 11px;box-sizing:border-box;max-width:100%}.settings-content :deep(input[type=checkbox]){min-height:18px;width:18px;height:18px;padding:0}.settings-content :deep(button){cursor:pointer;background:#f4f8f9;color:#23454b}.settings-content :deep(button.primary){background:#185c63;color:#fff}.settings-content :deep(button:disabled){opacity:.5;cursor:default}.settings-content :deep(article){border:1px solid #dce4e9;border-radius:9px;padding:14px;margin:12px 0}.settings-content :deep([role=alert]){color:#a22}@media(max-width:650px){summary{padding:14px}.heading strong{font-size:16px}.settings-content{padding:14px}.settings-content :deep(input),.settings-content :deep(select){font-size:16px}.description{font-size:12px}}
+</style>

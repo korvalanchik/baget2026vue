@@ -1,11 +1,13 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { partnerPayments } from '../services/partnerPayments.js'
 import { newRequestKey } from '../services/requestKey.js'
 import { paymentAmounts } from '../calculation/customerPayment.js'
 const props = defineProps({ session: { type: Object, required: true }, context: { type: Object, required: true } })
 const emit = defineEmits(['paid', 'busy'])
 const data = ref(null), busy = ref(false), error = ref(''), notice = ref(''), pending = ref(null)
+const paymentForm = ref(null)
+let initialPaymentOpened = false
 const page = ref(0), historyPage = ref(0), opened = ref(false), selected = ref(null)
 const amount = ref('0'), allocation = ref('0'), note = ref('')
 const adjustment = ref(null), adjustmentAmount = ref('0'), reason = ref(''), pendingAdjustment = ref(null)
@@ -31,12 +33,15 @@ async function load() {
  try { const saved = sessionStorage.getItem(storageKey); pending.value = saved ? JSON.parse(saved) : null; const correction = sessionStorage.getItem(adjustmentStorageKey); pendingAdjustment.value = correction ? JSON.parse(correction) : null; await refresh() }
  catch (e) { error.value = e.message }
  finally { busy.value = false; emit('busy', false) }
+ const target = orders.value.find(o => Number(o.orderNo) === Number(ctx.contextOrder))
+ if (!initialPaymentOpened && target && !hasPending.value) { initialPaymentOpened = true; if (target.canPay && Number(target.debt) > 0) open(target, false) }
 }
-function open(order = null) {
+function open(order = null, focus = true) {
  if (busy.value || hasPending.value) return
  adjustment.value = null; selected.value = order; opened.value = true; note.value = ''; notice.value = ''; error.value = ''
  allocation.value = String(order ? Math.min(Number(order.debt), Number(data.value.availableAdvance)) : 0)
  remainder()
+ if (focus) nextTick(() => paymentForm.value?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }))
 }
 function remainder() { amount.value = String(selected.value ? Math.max(0, Math.round((Number(selected.value.debt) - Number(allocation.value || 0)) * 100) / 100) : 0) }
 async function save() {
@@ -96,19 +101,27 @@ onMounted(load)
    <h4>{{ data.customerName }} · доступний аванс: {{ money(data.availableAdvance) }}</h4>
    <p>Аванс спільний для цього клієнта у філіях цієї фірми. Замовлення та історія нижче — лише з доступних вам філій.</p>
    <button type="button" :disabled="busy || hasPending" @click="open()">Прийняти аванс на баланс</button>
-   <h4>Оплата замовлень за роздрібною ціною</h4>
-   <div class="table-scroll"><table><thead><tr><th>Замовлення / філія</th><th>Сума</th><th>Сплачено</th><th>Залишок</th><th></th></tr></thead><tbody>
-    <tr v-for="o in orders" :key="o.orderNo" :class="{ selected: o.orderNo === ctx.contextOrder }"><td>№ {{ o.orderNo }} · {{ o.branchName }}<small v-if="[5,10].includes(Number(o.status))">Скасоване — прийняті кошти збережено в історії</small><small v-else-if="Number(o.pricePending)">Ціна очікує погодження</small><small v-else-if="Number(o.unfinished)">Попередня сума до завершення майстернею</small></td><td>{{ o.total == null ? 'Немає розрахунку' : money(o.total) }}</td><td>{{ money(o.paid) }}</td><td>{{ o.debt == null ? '—' : money(o.debt) }}<small v-if="Number(o.overpayment) > 0">Переплата {{ money(o.overpayment) }}<span v-if="!o.canTransfer"> — перенесення недоступне до завершення та погодження; для скасованого замовлення не виконується</span></small></td><td><button type="button" :disabled="busy || hasPending || !o.canPay" @click="open(o)">Оплатити / доплатити</button><button v-if="data.canAdjust && o.canTransfer" type="button" :disabled="busy || hasPending" @click="openAdjustment('TRANSFER', o)">Перенести переплату в аванс</button></td></tr>
-   </tbody></table></div>
-   <p v-if="!orders.length">Замовлень цього клієнта у цієї фірми не знайдено.</p>
-   <div class="actions"><button type="button" :disabled="busy || page === 0" @click="turn(-1)">Назад</button><span>Сторінка {{ page + 1 }}</span><button type="button" :disabled="busy || data.orders.length < 50" @click="turn(1)">Далі</button></div>
-   <form v-if="opened && !hasPending" @submit.prevent="save"><fieldset :disabled="busy"><legend>{{ selected ? `Оплата замовлення № ${selected.orderNo}` : 'Аванс клієнта у посередника' }}</legend>
+   <form ref="paymentForm" v-if="opened && !hasPending" @submit.prevent="save"><fieldset :disabled="busy"><legend>{{ selected ? `Оплата замовлення № ${selected.orderNo}` : 'Аванс клієнта у посередника' }}</legend>
     <p>Отримувач коштів: <strong>{{ ctx.partnerName }}</strong></p>
-    <template v-if="selected"><p>Залишок: {{ money(selected.debt) }}</p><label>Використати аванс<input v-model="allocation" type="number" min="0" :max="Math.min(Number(selected.debt), Number(data.availableAdvance))" step="0.01" required></label><button type="button" @click="remainder">Доплатити решту</button></template>
+    <template v-if="selected"><p>Сума: {{ money(selected.total) }} · сплачено: {{ money(selected.paid) }} · залишок: {{ money(selected.debt) }}</p><label>Використати аванс<input v-model="allocation" type="number" min="0" :max="Math.min(Number(selected.debt), Number(data.availableAdvance))" step="0.01" required></label><button type="button" @click="remainder">Доплатити решту</button></template>
     <label>Прийняти нових коштів<input v-model="amount" type="number" min="0" step="0.01" required></label>
     <label>Примітка<input v-model="note" maxlength="2000" placeholder="Готівка / переказ / номер документа"></label>
+    <p v-if="selected">Після оплати залишиться: {{ money(Math.max(0, Number(selected.debt) - Number(amount || 0) - Number(allocation || 0))) }}</p>
     <button type="submit">Записати кошти посередника</button><button type="button" @click="opened = false">Скасувати</button>
    </fieldset></form>
+   <h4>Оплата замовлень за роздрібною ціною</h4>
+   <details :open="!ctx.contextOrder"><summary>Замовлення клієнта · {{ orders.length }}</summary>
+   <article v-for="o in orders" :key="o.orderNo" class="order-card" :class="{selected: Number(o.orderNo) === Number(ctx.contextOrder)}">
+    <strong>№ {{ o.orderNo }} · {{ o.branchName }}</strong>
+    <p v-if="[5,10].includes(Number(o.status))">Скасоване — кошти збережено в історії</p><p v-else-if="Number(o.pricePending)">Ціна очікує погодження</p><p v-else-if="Number(o.unfinished)">Попередня сума до завершення майстернею</p>
+    <p>Сума: {{ o.total == null ? 'Немає розрахунку' : money(o.total) }} · Сплачено: {{ money(o.paid) }}</p><p><strong>До сплати: {{ o.debt == null ? '—' : money(o.debt) }}</strong></p>
+    <p v-if="Number(o.overpayment) > 0">Переплата: {{ money(o.overpayment) }}<span v-if="!o.canTransfer"> · перенесення поки недоступне</span></p>
+    <button type="button" :disabled="busy || hasPending || !o.canPay" @click="open(o)">Оплатити / зарахувати аванс</button>
+    <button v-if="data.canAdjust && o.canTransfer" type="button" :disabled="busy || hasPending" @click="openAdjustment('TRANSFER',o)">Перенести переплату в аванс</button>
+   </article></details>
+   <p v-if="!orders.length">Замовлень цього клієнта у цієї фірми не знайдено.</p>
+   <div class="actions"><button type="button" :disabled="busy || page === 0" @click="turn(-1)">Назад</button><span>Сторінка {{ page + 1 }}</span><button type="button" :disabled="busy || data.orders.length < 50" @click="turn(1)">Далі</button></div>
+
    <form v-if="adjustment && !hasPending" @submit.prevent="saveAdjustment"><fieldset :disabled="busy"><legend>{{ operationName(adjustment) }}</legend>
     <template v-if="adjustment.operation === 'REVERSAL'"><p>Помилковий платіж № {{ adjustment.target.id }}: {{ operationName(adjustment.target) }}<span v-if="adjustment.target.orderNo">, замовлення № {{ adjustment.target.orderNo }}</span>.</p><p>Буде скасовано весь запис: нові кошти {{ money(adjustment.target.cashDelta) }}, зміна авансу {{ money(adjustment.target.advanceDelta) }}, зміна оплати {{ money(adjustment.target.paidDelta) }}. Використаний для цієї оплати аванс повернеться на баланс.</p><p><strong>Це виправлення помилкового запису, а не повернення грошей клієнту.</strong></p></template>
     <template v-else><p>Замовлення № {{ adjustment.target.orderNo }}. Кошти залишаються авансом цього клієнта у {{ ctx.partnerName }}.</p><label>Сума перенесення<input v-model="adjustmentAmount" type="number" min="0.01" :max="Math.min(Number(adjustment.target.overpayment), 999999999.99)" step="0.01" required></label></template>
@@ -121,4 +134,5 @@ onMounted(load)
 </template>
 <style scoped>
 .partner-finance{border:1px solid #d6c29c;border-radius:10px;padding:16px;margin:12px 0;background:#fffdf7;color:#343321}header,.actions{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}h3{margin:0 0 6px}p{line-height:1.5;font-size:13px}button,input,textarea{font:inherit;padding:10px;border:1px solid #b8b4a2;border-radius:7px;max-width:100%;box-sizing:border-box}button{cursor:pointer;margin:4px;min-height:44px}button:disabled{opacity:.5}label{display:grid;gap:6px;margin:10px 0}fieldset{min-width:0;margin-top:12px;border:1px solid #d6c29c;border-radius:8px}.table-scroll{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:10px;border-bottom:1px solid #e4ded0}small{display:block;margin-top:4px}.selected{background:#fff0cc}.warning{background:#fff0cc;padding:10px}[role=alert]{color:#a32420}details{margin-top:14px}@media(max-width:600px){.partner-finance{padding:10px}input,textarea{font-size:16px}}
+.partner-finance{min-width:0;overflow-wrap:anywhere}.order-card{padding:12px;border:1px solid #d6c29c;border-radius:8px;margin:10px 0}summary{cursor:pointer;padding:10px 0}button{white-space:normal}form button[type=submit]{width:100%;background:#185c63;color:white}@media(max-width:600px){button{width:100%;margin:5px 0}input,textarea{width:100%}header{display:block}}
 </style>
