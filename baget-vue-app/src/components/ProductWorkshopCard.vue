@@ -81,7 +81,27 @@ function calculate(p) {
     message.value = 'Розрахунок заповнив таблицю. Перевірте фактичну витрату та збережіть.'
   })
 }
-function fill(p) { delete measurements.value[p.id]; p.lines.forEach(line => { line.actual = line.planned }) }
+function fill(p) {
+  if (busy.value || !productEditable(p, view.value?.canEdit) || othersDirty(p)) return
+  const hasActual = value => value !== '' && value != null
+  if ((hasActual(p.widthMm) || hasActual(p.heightMm) || p.lines.some(l => [l.actual, l.widthMm, l.heightMm].some(hasActual))) &&
+      !window.confirm('Замінити введені фактичні розміри й витрати плановими? Незбережені ручні значення буде замінено.')) return
+  return run(async () => {
+    const sizes = branchDimensions(p.configuration)
+    if (!sizes.length || sizes.some(s => !s.widthMm || !s.heightMm) || sizes.some(s => s.widthMm !== sizes[0].widthMm || s.heightMm !== sizes[0].heightMm))
+      throw new Error('Первісні розміри відсутні або відрізняються між складовими. Введіть обмір вручну.')
+    if (!p.lines.length || p.lines.some(l => l.planned == null || String(l.planned).trim() === '' || !Number.isFinite(Number(l.planned)) || Number(l.planned) < 0))
+      throw new Error('Для частини позицій немає коректної планової витрати. Перевірте склад виробу.')
+    const draft = { ...p, widthMm: sizes[0].widthMm, heightMm: sizes[0].heightMm }
+    const result = await productWorkshop(props.session.token, props.orderNo, `/${p.id}/calculate`, 'POST', measurementRequest(view.value.revision, draft))
+    // Validate every mapping before changing the editable draft. Keep the original saved plan quantities.
+    const lines = applyMeasurement(p.lines, result).map(line => ({ ...line, actual: line.planned }))
+    p.widthMm = draft.widthMm; p.heightMm = draft.heightMm; p.lines = lines
+    if (!p.note?.trim()) p.note = 'Обмір підтвердив розміри філії. Витрати заповнено за первісним планом.'
+    delete measurements.value[p.id]
+    message.value = 'Планові розміри й витрати перенесено у форму. Перевірте таблицю та натисніть «Зберегти обмір і витрати». Матеріали ще не списано.'
+  })
+}
 onMounted(reload)
 </script>
 <template>
@@ -116,7 +136,7 @@ onMounted(reload)
         <button v-if="productEditable(p, view.canEdit)" type="button" :disabled="busy || othersDirty(p)" @click="calculate(p)">Розрахувати за обміром</button>
         <MeasurementResult :result="measurements[p.id]" :stale="measurementStale(measurements[p.id], p)" />
         <button v-if="productEditable(p, view.canEdit) && measurements[p.id]" type="button" :disabled="busy || othersDirty(p)" @click="delete measurements[p.id]">Продовжити з ручною витратою</button>
-        <button v-if="productEditable(p, view.canEdit)" type="button" :disabled="busy || othersDirty(p)" @click="fill(p)">Взяти первісні планові кількості</button>
+        <button v-if="productEditable(p, view.canEdit)" type="button" :disabled="busy || othersDirty(p)" @click="fill(p)">Розміри підтверджено — заповнити за планом</button>
         <div class="table-wrap"><table><thead><tr><th>Матеріал / робота</th><th>План</th><th>Факт</th><th>Ширина, мм</th><th>Висота, мм</th><th>Ціна / од.</th><th>Збережена сума</th></tr></thead><tbody>
           <tr v-for="line in p.lines" :key="line.itemNo"><td>{{ line.description }}<small>{{ units[line.unit] || line.unit }}</small></td><td>{{ line.planned }}</td>
             <td><input v-model="line.actual" type="number" min="0" :step="line.unit === 'PIECE' ? 1 : 0.000001" :aria-label="`Факт: ${line.description}`" :disabled="busy || !productEditable(p, view.canEdit) || othersDirty(p)"></td>

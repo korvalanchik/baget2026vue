@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
 import RewardsDesk from "./components/RewardsDesk.vue";
 import SettingsDesk from "./components/SettingsDesk.vue";
-import OrderApprovalsDesk from "./components/OrderApprovalsDesk.vue";
+import BranchOrdersDesk from "./components/BranchOrdersDesk.vue";
 import AccountantDesk from "./components/AccountantDesk.vue";
 import MaterialsDesk from "./components/MaterialsDesk.vue";
 import WarehouseDesk from "./components/WarehouseDesk.vue";
@@ -11,9 +11,7 @@ import { canAcceptCustomerPayment } from "./services/customerPayments.js";
 import ProductTracking from "./components/ProductTracking.vue";
 const scannedProduct = new URLSearchParams(window.location.search).get('product') || '';
 import LoginPage from "./components/LoginPage.vue";
-import OrderForm from "./components/OrderForm.vue";
 import EstimateCalculator from "./components/EstimateCalculator.vue";
-const orderTab = ref("estimate");
 const scanTracking = ref(false), scanBusy = ref(false);
 import CustomersDesk from "./components/CustomersDesk.vue";
 import WorkshopDesk from "./components/WorkshopDesk.vue";
@@ -173,17 +171,10 @@ function signOut() {
         </div>
       </header>
       <section v-if="activeSection === 'new-order'">
-        <div class="order-mode-tabs" role="group" aria-label="Режим роботи">
-          <button :class="{ selected: orderTab === 'estimate' }" :aria-pressed="orderTab === 'estimate'" @click="orderTab = 'estimate'">Розрахунок</button>
-          <button :class="{ selected: orderTab === 'legacy' }" :aria-pressed="orderTab === 'legacy'" @click="orderTab = 'legacy'">Оформлення замовлення</button>
-        </div>
-        <KeepAlive>
-        <EstimateCalculator v-if="orderTab === 'estimate'" :session="session" />
-        <OrderForm v-else :session="session" />
-        </KeepAlive>
+        <EstimateCalculator :session="session" />
       </section>
       <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
-      <OrderApprovalsDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" />
+      <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" />
       <RewardsDesk v-else-if="activeSection === 'rewards'" :session="session" />
       <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" />
       <WorkshopDesk v-else-if="activeSection === 'workshop'" :session="session" @open-finance="activeSection = 'customers'" />
@@ -215,9 +206,6 @@ function signOut() {
 
 <style scoped>
 .settings-page { padding: 20px clamp(12px, 3vw, 28px); min-width: 0; }
-.order-mode-tabs { display: flex; gap: 8px; padding: 20px 24px 0; flex-wrap: wrap; }
-.order-mode-tabs button { padding: 12px 18px; border-radius: 10px; border: 1px solid #d7ded9; background: white; cursor: pointer; }
-.order-mode-tabs .selected { color: white; background: #254d3a; border-color: #254d3a; }
 
 .mobile-menu-button, .mobile-menu-close { display: none; }
 .menu-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(16, 28, 45, .55); }
