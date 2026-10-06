@@ -1,5 +1,7 @@
 <script setup>
 import MaterialCountUnits from './MaterialCountUnits.vue'
+import OpeningMaterialCost from './OpeningMaterialCost.vue'
+const openingCostOpen = unitRef(false)
 import { ref as unitRef } from 'vue'
 const unitSettingsOpen = unitRef(false)
 import { ref, watch } from 'vue'
@@ -47,6 +49,7 @@ watch(() => props.partNo, () => load(true), { immediate: true })
       <button :disabled="busy" @click="load(true)">Оновити</button>
     </div>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="busy">Завантаження…</p>
+    <details v-if="session.roles?.includes('ROLE_ADMIN')" @toggle="openingCostOpen=$event.target.open"><summary>Початкова складська собівартість</summary><OpeningMaterialCost v-if="openingCostOpen" :key="partNo" :session="session" :part-no="Number(partNo)" @saved="load()" /></details>
     <template v-if="card"><p><strong>Складська закупівельна собівартість: {{ fmt(card.inventoryUnitCost) }} грн/{{ {METER:'м',SQUARE_METER:'м²',PIECE:'шт'}[card.unit] }}</strong></p>
       <details @toggle="unitSettingsOpen=$event.target.open"><summary>Одиниці підрахунку: рейки, листи, упаковки</summary><MaterialCountUnits v-if="unitSettingsOpen" :key="partNo" :session="session" :part-no="Number(partNo)" :unit="card.unit" settings-only /></details>
       <dl><div v-for="(name, key) in { onHand: 'Фізичний залишок', reserved: 'Резерв', available: 'Вільно', demand: 'Потреба', shortage: 'Незабезпечена потреба', expected: 'Очікується від постачальників' }" :key="key"><dt>{{ name }}</dt><dd>{{ fmt(card[key]) }} {{ { METER: 'м', SQUARE_METER: 'м²', PIECE: 'шт' }[card.unit] }}</dd></div></dl>
