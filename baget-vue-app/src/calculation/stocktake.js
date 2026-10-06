@@ -8,15 +8,15 @@ export function countPayload(doc, draft) {
     if (seen.has(l.partNo)) throw new Error('Матеріал повторюється.')
     seen.add(l.partNo)
     const quantity = l.counted == null || String(l.counted).trim() === '' ? null : stockQuantity(l.counted, l.unit, true)
-    if (l.new && quantity != null) throw new Error('Спочатку збережіть додавання нового матеріалу.')
-    return { partNo: l.partNo, quantity, note: (l.note || '').trim() }
+    if (l.new && (quantity != null || l.countInput)) throw new Error('Спочатку збережіть додавання нового матеріалу.')
+    return { partNo: l.partNo, quantity, note: (l.note || '').trim(), ...(l.countInput ? { countInput: l.countInput } : {}) }
   }) }
 }
 export function stocktakeDraft(doc) {
-  return { date: doc.date, note: doc.note, lines: doc.lines.map(l => ({ ...l, counted: l.counted ?? '', new: false })) }
+  return { date: doc.date, note: doc.note, lines: doc.lines.map(l => ({ ...l, counted: l.counted ?? '', countInput: l.countBreakdown?.input ?? null, new: false })) }
 }
 export function draftFingerprint(draft) {
-  return JSON.stringify([draft.date, draft.note, draft.lines.map(l => [l.partNo, l.counted, l.note || ''])])
+  return JSON.stringify([draft.date, draft.note, draft.lines.map(l => [l.partNo, l.counted, l.note || '', l.countInput || null])])
 }
 export function reservationReductions(review) {
   return (review?.lines || []).flatMap(l => (l.reservations || []).filter(r => Number(r.after) < Number(r.before)).map(r => ({ ...r, description: l.description, unit: l.unit })))
@@ -34,10 +34,10 @@ export function printStocktake(doc, units) {
   add('p', `Дата: ${doc.date}. Склав: ${doc.actor}. Провів: ${doc.postedBy}, ${doc.postedAt}.`)
   add('p', doc.note)
   const table = add('table', ''), head = add('tr', '', add('thead', '', table)), body = add('tbody', '', table)
-  for (const name of ['Матеріал', 'Од.', 'Було', 'Пораховано', 'Різниця', 'Причина']) add('th', name, head)
+  for (const name of ['Матеріал', 'Од.', 'Було', 'Пораховано', 'Різниця', 'Причина', 'Як пораховано']) add('th', name, head)
   for (const l of doc.postedSnapshot.lines) {
     const row = add('tr', '', body)
-    for (const text of [l.description, units[l.unit] || l.unit, l.current.stock ?? 'Невідомо', l.counted, l.difference ?? 'Початковий залишок', l.note]) add('td', text, row)
+    for (const text of [l.description, units[l.unit] || l.unit, l.current.stock ?? 'Невідомо', l.counted, l.difference ?? 'Початковий залишок', l.note, countBreakdownText(l.countBreakdown)]) add('td', text, row)
   }
   const reductions = reservationReductions(doc.postedSnapshot)
   if (reductions.length) {
@@ -46,4 +46,9 @@ export function printStocktake(doc, units) {
   }
   add('p', 'Підпис відповідального: ____________________')
   frame.contentWindow.focus(); frame.contentWindow.print(); setTimeout(() => frame.remove(), 1000)
+}
+
+export function countBreakdownText(b) {
+ if (!b) return ''
+ return [...(b.entries || []).map(e => `${e.label}: ${e.count} × ${e.factor} = ${e.subtotal}`), `Залишок: ${b.input?.remainder ?? 0}`, `Разом: ${b.total}`].join('; ')
 }

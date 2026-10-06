@@ -1,14 +1,16 @@
 <script setup>
+import MaterialCountUnits from './MaterialCountUnits.vue'
 import { newRequestKey } from '../services/requestKey.js'
 import { computed, onMounted, ref } from 'vue'
 import { warehouse } from '../services/warehouse.js'
 import { localDate, stockUnits } from '../calculation/procurement.js'
-import { stocktakeStates, countPayload, stocktakeDraft, draftFingerprint, reservationReductions, printStocktake } from '../calculation/stocktake.js'
+import { countBreakdownText, stocktakeStates, countPayload, stocktakeDraft, draftFingerprint, reservationReductions, printStocktake } from '../calculation/stocktake.js'
 const props = defineProps({ session: { type: Object, required: true } })
+const countingPart = ref(null)
 const busy = ref(false), error = ref(''), message = ref(''), orders = ref([]), page = ref(0), materials = ref([]), query = ref(''), materialPage = ref(0)
 const selected = ref([]), createNote = ref(''), createDate = ref(localDate()), doc = ref(null), draft = ref(null), baseline = ref(''), review = ref(null), approval = ref(false)
 let creationRetry = null, postRetry = null
-const dirty = computed(() => draft.value && draftFingerprint(draft.value) !== baseline.value)
+const dirty = computed(() => countingPart.value != null || (draft.value && draftFingerprint(draft.value) !== baseline.value))
 const reductions = computed(() => reservationReductions(review.value))
 const api = (path = '', body) => warehouse(props.session.token, `/stocktakes${path}`, body)
 const fmt = value => value == null ? 'Невідомо' : Number(value).toLocaleString('uk-UA', { maximumFractionDigits: 6 })
@@ -21,7 +23,7 @@ async function search() { materials.value = await warehouse(props.session.token,
 function find(reset = true) { if (reset) materialPage.value = 0; return run(search) }
 function materialTurn(n) { materialPage.value += n; find(false) }
 function turn(n) { page.value += n; return run(list) }
-function setDoc(data) { doc.value = data; draft.value = stocktakeDraft(data); baseline.value = draftFingerprint(draft.value); review.value = null; approval.value = false; postRetry = null }
+function setDoc(data) { countingPart.value=null; doc.value = data; draft.value = stocktakeDraft(data); baseline.value = draftFingerprint(draft.value); review.value = null; approval.value = false; postRetry = null }
 function open(id) { if (dirty.value && !window.confirm('Відкинути незбережений підрахунок?')) return; return run(async () => setDoc(await api(`/${id}`))) }
 function add(m) {
   error.value = ''
@@ -36,9 +38,13 @@ function add(m) {
     selected.value.push(m)
   }
 }
+function toggleCount(part) {
+  if (countingPart.value != null && !window.confirm('Закрити форму перерахунку? Значення, які ще не перенесені в підрахунок, буде відкинуто.')) return
+  countingPart.value = countingPart.value === part ? null : part
+}
 function newDocument() {
   if (dirty.value && !window.confirm('Відкинути незбережений підрахунок?')) return
-  doc.value = null; draft.value = null; review.value = null; approval.value = false
+  countingPart.value=null; doc.value = null; draft.value = null; review.value = null; approval.value = false
 }
 function create() { return run(async () => {
   if (!createNote.value.trim() || !createDate.value || !selected.value.length) throw new Error('Оберіть матеріали, дату та підставу інвентаризації.')
@@ -47,6 +53,7 @@ function create() { return run(async () => {
   setDoc(await api('', { ...r, requestKey: creationRetry.key })); creationRetry = null; selected.value = []; await list(); message.value = 'Чернетку створено. Тепер внесіть фактичні залишки.'
 }) }
 function save() { return run(async () => {
+  if (countingPart.value != null) throw new Error('Спочатку обчисліть і перенесіть підрахунок або закрийте форму перерахунку.')
   const payload = countPayload(doc.value, draft.value)
   setDoc(await api(`/${doc.value.id}/save`, payload)); await list(); message.value = 'Підрахунок збережено. Склад ще не змінено.'
 }) }
@@ -96,7 +103,7 @@ defineExpose({ open })
       <template v-if="doc.status === 'DRAFT'">
         <p v-if="dirty" class="warning">Є незбережені зміни. Попередня перевірка не придатна для проведення.</p>
         <div class="tools"><label>Дата<input v-model="draft.date" :disabled="busy" type="date"></label><button :disabled="busy" @click="open(doc.id)">Перечитати документ</button></div><label>Підстава<textarea v-model="draft.note" :disabled="busy" maxlength="1000"></textarea></label>
-        <div v-for="(l, i) in draft.lines" :key="l.partNo" class="count-line"><strong>{{ l.description }}</strong><p>Обліковий залишок на початок: {{ fmt(l.baselineStock) }} {{ stockUnits[l.unit] }}</p><p v-if="l.new" class="warning">Збережіть додавання матеріалу, потім починайте його підрахунок.</p><div class="tools"><label>Фактичний залишок, {{ stockUnits[l.unit] }}<input v-model="l.counted" :disabled="busy || l.new" type="number" min="0" :step="l.unit === 'PIECE' ? 1 : 0.000001"></label><button :disabled="busy" @click="draft.lines.splice(i, 1)">Прибрати з акта</button></div><label>Причина різниці / початкового залишку<textarea v-model="l.note" :disabled="busy" maxlength="1000"></textarea></label></div>
+        <div v-for="(l, i) in draft.lines" :key="l.partNo" class="count-line"><strong>{{ l.description }}</strong><p>Обліковий залишок на початок: {{ fmt(l.baselineStock) }} {{ stockUnits[l.unit] }}</p><p v-if="l.new" class="warning">Збережіть додавання матеріалу, потім починайте його підрахунок.</p><div class="tools"><label>Фактичний залишок, {{ stockUnits[l.unit] }}<input v-model="l.counted" :disabled="busy || l.new || !!l.countInput" type="number" min="0" :step="l.unit === 'PIECE' ? 1 : 0.000001"></label><button :disabled="busy" @click="draft.lines.splice(i, 1)">Прибрати з акта</button></div><p v-if="l.countBreakdown">{{ countBreakdownText(l.countBreakdown) }}</p><button type="button" :disabled="busy || l.new" @click="toggleCount(l.partNo)">{{ countingPart === l.partNo ? 'Закрити перерахунок' : 'Порахувати в рейках / листах / упаковках' }}</button><button v-if="l.countInput" type="button" :disabled="busy" @click="l.countInput=null;l.countBreakdown=null;countingPart=null">Перейти до ручного підсумку</button><MaterialCountUnits v-if="countingPart===l.partNo" :session="session" :part-no="Number(l.partNo)" :unit="l.unit" :input="l.countInput" @busy="busy=$event" @apply="l.counted=$event.total;l.countInput=$event.input;l.countBreakdown=$event;countingPart=null;busy=false" /><label>Причина різниці / початкового залишку<textarea v-model="l.note" :disabled="busy" maxlength="1000"></textarea></label></div>
         <div class="tools"><button :disabled="busy || !dirty" @click="save">Зберегти підрахунок</button><button :disabled="busy || dirty" @click="check">Перевірити перед проведенням</button><button :disabled="busy || dirty" @click="cancel">Скасувати чернетку</button></div>
         <section v-if="review && !dirty" class="review"><h4>Перевірка залишків та резервів</h4>
           <p>Старші резерви зберігаються першими. Вільний залишок розподіляється на непокриту потребу. Замовлення не скасовуються.</p>
@@ -105,7 +112,7 @@ defineExpose({ open })
           <p v-if="!review.canPost" class="warning">Проведення заблоковано. Усуньте зазначені причини й повторіть перевірку.</p><button :disabled="busy || !review.canPost || (review.requiresApproval && !approval)" @click="post">Провести акт</button>
         </section>
       </template>
-      <template v-else><p>{{ doc.note }}</p><button v-if="doc.status === 'POSTED'" :disabled="busy" @click="print">Друкувати акт / зберегти PDF</button><p v-if="doc.status === 'POSTED'">Акт зафіксовано. Для виправлення створіть новий акт із посиланням на цей номер у підставі.</p><div v-for="l in (doc.postedSnapshot?.lines || doc.lines)" :key="l.partNo" class="count-line"><strong>{{ l.description }}</strong><p>Було {{ fmt(l.current ? l.current.stock : l.baselineStock) }} · Пораховано {{ fmt(l.counted) }} {{ stockUnits[l.unit] }}<span v-if="doc.postedSnapshot"> · Різниця {{ l.difference == null ? 'початковий залишок' : fmt(l.difference) }}</span></p><p>{{ l.note }}</p><p v-for="r in l.reservations || []" :key="r.id">Замовлення № {{ r.orderNo }}, виріб {{ r.productId }}: резерв {{ fmt(r.before) }} → {{ fmt(r.after) }}; нестача після проведення {{ fmt(r.shortageAfter) }}.</p></div></template>
+      <template v-else><p>{{ doc.note }}</p><button v-if="doc.status === 'POSTED'" :disabled="busy" @click="print">Друкувати акт / зберегти PDF</button><p v-if="doc.status === 'POSTED'">Акт зафіксовано. Для виправлення створіть новий акт із посиланням на цей номер у підставі.</p><div v-for="l in (doc.postedSnapshot?.lines || doc.lines)" :key="l.partNo" class="count-line"><strong>{{ l.description }}</strong><p>Було {{ fmt(l.current ? l.current.stock : l.baselineStock) }} · Пораховано {{ fmt(l.counted) }} {{ stockUnits[l.unit] }}<span v-if="doc.postedSnapshot"> · Різниця {{ l.difference == null ? 'початковий залишок' : fmt(l.difference) }}</span></p><p>{{ l.note }}</p><p v-if="l.countBreakdown">{{ countBreakdownText(l.countBreakdown) }}</p><p v-for="r in l.reservations || []" :key="r.id">Замовлення № {{ r.orderNo }}, виріб {{ r.productId }}: резерв {{ fmt(r.before) }} → {{ fmt(r.after) }}; нестача після проведення {{ fmt(r.shortageAfter) }}.</p></div></template>
       <details><summary>Історія документа (останні 200 подій)</summary><p v-for="(e, i) in doc.events" :key="i">{{ e.createdAt }} · {{ e.actor }} · {{ ({ CREATE: 'Створено', SAVE: 'Збережено підрахунок', RECOUNT: 'Повторний підрахунок', CANCEL: 'Скасовано', POST: 'Проведено' })[e.action] }} · Ревізія {{ e.revision }}<span v-if="eventNote(e)"> · {{ eventNote(e) }}</span></p></details>
     </article>
   </section>

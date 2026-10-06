@@ -1,12 +1,15 @@
 <script setup>
 import { newRequestKey } from '../services/requestKey.js'
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
+import ReceiptCostDesk from './ReceiptCostDesk.vue'
 import { warehouse } from '../services/warehouse.js'
 import ProcurementDesk from './ProcurementDesk.vue'
 import FrameSamplesDesk from './FrameSamplesDesk.vue'
 import StocktakeDesk from './StocktakeDesk.vue'
 import MaterialCard from './MaterialCard.vue'
 import ProductTracking from './ProductTracking.vue'
+const receiptDesk=ref(null), receiptBusy=ref(false)
+async function openPricedReceipt(id){if(receiptBusy.value)return;tab.value='receipts';await nextTick();await receiptDesk.value.start(id)}
 const tab = ref('procurement')
 const stocktakeDesk = ref(null), procurementDesk = ref(null), trackedProduct = ref(null)
 async function openDocument(doc) {
@@ -43,10 +46,11 @@ function state(r, status) { return run(async () => { selected.value = await ware
 onMounted(() => refresh())
 </script>
 <template>
-  <nav class="material-tabs"><button :class="{ active: tab === 'inventory' }" @click="tab = 'inventory'">Акти інвентаризації</button><button :class="{ active: tab === 'samples' }" @click="tab = 'samples'">Зразки багету по філіях</button><button :class="{ active: tab === 'procurement' }" @click="tab = 'procurement'">Потреби та постачання</button><button :class="{ active: tab === 'stock' }" @click="tab = 'stock'; refresh()">Залишки та інвентаризація</button></nav>
+  <nav class="material-tabs"><button :disabled="receiptBusy" :class="{ active: tab === 'receipts' }" @click="tab = 'receipts'">Прихід і собівартість</button><button :class="{ active: tab === 'inventory' }" @click="tab = 'inventory'">Акти інвентаризації</button><button :class="{ active: tab === 'samples' }" @click="tab = 'samples'">Зразки багету по філіях</button><button :class="{ active: tab === 'procurement' }" @click="tab = 'procurement'">Потреби та постачання</button><button :class="{ active: tab === 'stock' }" @click="tab = 'stock'; refresh()">Залишки та інвентаризація</button></nav>
+  <ReceiptCostDesk ref="receiptDesk" v-show="tab === 'receipts'" :session="session" @busy="receiptBusy=$event" />
   <StocktakeDesk ref="stocktakeDesk" v-show="tab === 'inventory'" :session="session" />
   <FrameSamplesDesk v-if="tab === 'samples'" :session="session" />
-  <ProcurementDesk ref="procurementDesk" v-show="tab === 'procurement'" :session="session" :active="tab === 'procurement'" />
+  <ProcurementDesk ref="procurementDesk" v-show="tab === 'procurement'" :session="session" :active="tab === 'procurement'" @priced-receipt="openPricedReceipt" />
   <section v-show="tab === 'stock'" class="materials">
     <h1>Матеріали</h1><p>Спільний склад майстерні. Резерв формується із замовлень; нестача не скасовує замовлення.</p>
     <div class="tools"><input v-model="q" placeholder="Артикул або назва" @keydown.enter="refresh(true)"><label><input v-model="shortage" type="checkbox" :disabled="busy" @change="refresh(true)"> Тільки нестача</label><button :disabled="busy" @click="refresh(true)">Знайти / оновити</button></div>
@@ -56,7 +60,8 @@ onMounted(() => refresh())
     <div class="tools"><button :disabled="busy || page === 0" @click="turn(-1)">Назад</button><span>Сторінка {{ page + 1 }}</span><button :disabled="busy || rows.length < 100" @click="turn(1)">Далі</button></div>
     <article v-if="selected">
       <h2>{{ selected.description }}</h2><p>Фізичний залишок: {{ selected.onHand ?? 'невідомий' }} {{ units[selected.unit] }}</p>
-      <div class="tools"><label>Операція<select v-model="action" :disabled="busy"><option value="RECEIPT">Прихід без замовлення постачальнику</option><option value="COUNT">Інвентаризація позиції</option><option value="REQUEST">Заявка на матеріал</option></select></label><label>{{ action === 'COUNT' ? 'Порахований залишок' : 'Кількість' }}<input v-model="quantity" type="number" min="0" :step="selected.unit === 'PIECE' ? 1 : 0.000001" :disabled="busy"></label></div>
+      <div class="tools"><label>Операція<select v-model="action" :disabled="busy"><option value="RECEIPT">Прихід без цін (собівартість стане невідомою)</option><option value="COUNT">Інвентаризація позиції</option><option value="REQUEST">Заявка на матеріал</option></select></label><label>{{ action === 'COUNT' ? 'Порахований залишок' : 'Кількість' }}<input v-model="quantity" type="number" min="0" :step="selected.unit === 'PIECE' ? 1 : 0.000001" :disabled="busy"></label></div>
+      <p v-if="action === 'RECEIPT'">Для закупівлі з цінами використовуйте «Прихід і собівартість». Прихід без ціни скине складську собівартість цього матеріалу до невідомої.</p>
       <p v-if="action === 'COUNT'">Вкажіть повний фактичний залишок цієї позиції. Для підрахунку кількох позицій або залишку нижче чинного резерву використовуйте «Акти інвентаризації».</p>
       <label>Документ / примітка<textarea v-model="note" maxlength="1000" :disabled="busy"></textarea></label><button :disabled="busy" @click="submit">Зберегти операцію</button>
       <MaterialCard :key="selected.partNo" :part-no="Number(selected.partNo)" :session="session" @document="openDocument" />

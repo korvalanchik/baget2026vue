@@ -1,4 +1,7 @@
 <script setup>
+import MaterialCountUnits from './MaterialCountUnits.vue'
+import { ref as unitRef } from 'vue'
+const unitSettingsOpen = unitRef(false)
 import { ref, watch } from 'vue'
 import { warehouse } from '../services/warehouse.js'
 import { movementNames, reserveReasons, quantityText as fmt, cardCsv } from '../calculation/materialCard.js'
@@ -44,7 +47,8 @@ watch(() => props.partNo, () => load(true), { immediate: true })
       <button :disabled="busy" @click="load(true)">Оновити</button>
     </div>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="busy">Завантаження…</p>
-    <template v-if="card">
+    <template v-if="card"><p><strong>Складська закупівельна собівартість: {{ fmt(card.inventoryUnitCost) }} грн/{{ {METER:'м',SQUARE_METER:'м²',PIECE:'шт'}[card.unit] }}</strong></p>
+      <details @toggle="unitSettingsOpen=$event.target.open"><summary>Одиниці підрахунку: рейки, листи, упаковки</summary><MaterialCountUnits v-if="unitSettingsOpen" :key="partNo" :session="session" :part-no="Number(partNo)" :unit="card.unit" settings-only /></details>
       <dl><div v-for="(name, key) in { onHand: 'Фізичний залишок', reserved: 'Резерв', available: 'Вільно', demand: 'Потреба', shortage: 'Незабезпечена потреба', expected: 'Очікується від постачальників' }" :key="key"><dt>{{ name }}</dt><dd>{{ fmt(card[key]) }} {{ { METER: 'м', SQUARE_METER: 'м²', PIECE: 'шт' }[card.unit] }}</dd></div></dl>
       <p>«Невідомо» означає, що залишок не був зафіксований. Історія показує лише записані операції, без відновлення старих залишків. Зміни резервів не є фізичним рухом матеріалу.</p>
       <details><summary>Активні резерви ({{ card.reservations.length }})</summary>
