@@ -1,5 +1,6 @@
 <script setup>
 import PriceApprovalPanel from './PriceApprovalPanel.vue'
+import ProductConsumptionCost from './ProductConsumptionCost.vue'
 import ProductTracking from './ProductTracking.vue'
 import { branchDimensions, historyActualLabel } from '../calculation/workshopHistory.js'
 import ProductRework from './ProductRework.vue'
@@ -152,6 +153,7 @@ onMounted(reload)
           <button v-if="p.state === 'IN_PROGRESS' && !p.confirmed && !p.rework?.active" type="button" :disabled="busy || dirty || !p.widthMm || !p.heightMm || p.lines.some(l => l.actual === '')" @click="finish(p)">Завершити виріб і підтвердити витрати</button>
         </div>
         <p v-if="p.confirmed"><strong>Підтверджена вартість: {{ money(p.total) }} грн.</strong> Виробничі дані зафіксовано.</p>
+        <ProductConsumptionCost v-if="session.roles?.includes('ROLE_ADMIN')" :key="`cost-${p.id}-${p.revision}`" :session="session" :product-id="Number(p.id)" />
         <ProductTracking v-if="p.confirmed || p.rework?.active" :key="`${p.id}-${p.revision}`" :session="session" :product-id="p.id" :disabled="busy || dirty" @transferred="reload" />
         <ProductRework :session="session" :order-no="orderNo" :revision="view.revision" :product="p" :can-edit="view.canEdit" :disabled="busy || othersDirty(p) || changed(p)" @updated="accept" @dirty="reworkDirty[p.id] = $event" @busy="childBusy[p.id] = $event" />
         <details><summary>Історія дій ({{ p.events.length }})</summary>
