@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
 import RewardsDesk from "./components/RewardsDesk.vue";
-import ResultsDesk from "./components/ResultsDesk.vue";
+import OwnerResultsDesk from "./components/OwnerResultsDesk.vue";
 import SettingsDesk from "./components/SettingsDesk.vue";
 import BranchOrdersDesk from "./components/BranchOrdersDesk.vue";
 import AccountantDesk from "./components/AccountantDesk.vue";
@@ -175,7 +175,7 @@ function signOut() {
       <section v-if="activeSection === 'new-order'">
         <EstimateCalculator :session="session" />
       </section>
-      <ResultsDesk v-else-if="activeSection === 'owner-results' && isAdmin" :session="session" />
+      <OwnerResultsDesk v-else-if="activeSection === 'owner-results' && isAdmin" :session="session" />
       <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
       <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" />
       <RewardsDesk v-else-if="activeSection === 'rewards'" :session="session" />
