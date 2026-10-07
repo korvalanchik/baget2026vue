@@ -1,5 +1,6 @@
 <script setup>
 import SettingsSection from './SettingsSection.vue'
+import UserAdministration from './UserAdministration.vue'
 import CommercialDesk from './CommercialDesk.vue'
 import RewardsDesk from './RewardsDesk.vue'
 import CostUpdateDesk from './CostUpdateDesk.vue'
@@ -12,6 +13,7 @@ defineProps({ session: { type: Object, required: true } })
    <SettingsSection title="Філії та ціноутворення" description="Тип філії, фірма-посередник і правила вибору прайсів для нових замовлень."><CommercialDesk :session="session" /></SettingsSection>
    <SettingsSection title="Винагороди менеджерів" description="Увімкнення нарахувань, загальний відсоток і персональні ставки менеджерів."><RewardsDesk :session="session" settings-only /></SettingsSection>
    <SettingsSection title="Розрахункова собівартість матеріалів" description="Накладні витрати, перегляд і підтвердження оновлення Parts.Cost. Доступно адміністратору."><CostUpdateDesk :session="session" /></SettingsSection>
+   <SettingsSection title="Користувачі та доступ" description="Облікові записи, ролі, дозволені філії та блокування доступу."><UserAdministration :session="session" /></SettingsSection>
   </div>
  </section>
 </template>

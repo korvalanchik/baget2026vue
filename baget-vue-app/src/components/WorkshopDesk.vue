@@ -1,11 +1,9 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import ProductWorkshopCard from './ProductWorkshopCard.vue'
-import { canAccess } from '../services/auth.js'
 import { loadWorkshopOrders, loadWorkshopOrder, saveWorkshopOrder, workshopColumns, millimeters, urgency } from '../services/workshop.js'
 
 const props = defineProps({ session: { type: Object, required: true } })
-defineEmits(['open-finance'])
 const orders = ref([])
 const productionDirty = ref(false)
 const loading = ref(false)
@@ -120,7 +118,7 @@ onMounted(refresh)
       </div>
       <p v-if="error" class="form-message" role="alert">{{ error }} <button class="table-button" :disabled="loading" @click="refresh">Повторити</button></p>
       <p v-if="notice" class="form-message success" role="status">{{ notice }}</p>
-      <div class="workshop-caption"><span role="status">{{ loading ? 'Завантаження замовлень…' : `На дошці: ${count}` }}</span><button v-if="canAccess(session, 'customers:finance:read')" class="back-link" @click="$emit('open-finance')">Клієнти та інвойси →</button></div>
+      <div class="workshop-caption"><span role="status">{{ loading ? 'Завантаження замовлень…' : `На дошці: ${count}` }}</span></div>
       <div class="workshop-board" :aria-busy="loading">
         <section v-for="column in columns" :key="column.id" class="workshop-column" :style="{ '--column-color': column.color }">
           <header><h2><i></i>{{ column.title }}</h2><b>{{ column.orders.length }}</b></header>
@@ -138,7 +136,7 @@ onMounted(refresh)
           </div>
         </section>
       </div>
-      <p class="workshop-hint">Без дати готовності позначаємо замовлення віком понад 3 та 5 днів. Оплати й рахунки — у розділі «Клієнти та інвойси».</p>
+      <p class="workshop-hint">Без дати готовності позначаємо замовлення віком понад 3 та 5 днів. Рахунки — у розділі «Рахунки за виробами», приймання та видача — у розділі «Замовлення».</p>
     </div>
     <dialog ref="dialog" class="workshop-dialog" aria-labelledby="workshop-title" @cancel.prevent="close()">
       <form v-if="selected && draft" @submit.prevent="save">

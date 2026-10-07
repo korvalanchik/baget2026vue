@@ -39,10 +39,7 @@ export const saveWorkshopOrder = (token, order) => request(token, `/${encodeURIC
 export const workshopColumns = [
   { id: 'todo', title: 'Треба зробити', statuses: [1], color: '#cf943f' },
   { id: 'work', title: 'В роботі', statuses: [2], color: '#668bbd' },
-  { id: 'done', title: 'Зроблено', statuses: [3], color: '#60a086' },
-  { id: 'calculated', title: 'Розраховано', statuses: [6], color: '#9580bc' },
-  { id: 'finance', title: 'Рахунки й оплата', statuses: [4, 7, 8, 9], color: '#9580bc' },
-  { id: 'delivery', title: 'Передача', statuses: [11, 12], color: '#60a086' },
+  { id: 'done', title: 'Зроблено', statuses: [3, 6], color: '#60a086' },
   { id: 'stopped', title: 'Відмова / неможливе виконання', statuses: [5, 10], color: '#b76767' },
 ]
 export function millimeters(value) { return value == null ? '' : Math.round(Number(value) * 1000000) / 1000 }

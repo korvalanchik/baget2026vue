@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
 import RewardsDesk from "./components/RewardsDesk.vue";
+import ResultsDesk from "./components/ResultsDesk.vue";
 import SettingsDesk from "./components/SettingsDesk.vue";
 import BranchOrdersDesk from "./components/BranchOrdersDesk.vue";
 import AccountantDesk from "./components/AccountantDesk.vue";
@@ -83,11 +84,12 @@ const navigation = [
   { id: "accountant", icon: "▧", label: "Рахунки за виробами", access: "finance:read" },
   { id: "rewards", icon: "₴", label: "Винагороди", access: "scanning:read" },
   { id: "finance", icon: "₴", label: "Фінанси", access: "finance:read" },
+  { id: "owner-results", icon: "▥", label: "Результати роботи" },
   { id: "settings", icon: "⚙", label: "Налаштування" },
 ];
 const isAdmin = computed(() => session.value?.roles?.includes("ROLE_ADMIN") === true);
 const allowedNavigation = computed(() =>
-  navigation.filter((item) => item.id === "rewards" ? canAcceptCustomerPayment(session.value) : item.id === "settings" ? isAdmin.value : canAccess(session.value, item.access)),
+  navigation.filter((item) => item.id === "rewards" ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access)),
 );
 function completeLogin(newSession) {
   menuOpen.value = false;
@@ -173,6 +175,7 @@ function signOut() {
       <section v-if="activeSection === 'new-order'">
         <EstimateCalculator :session="session" />
       </section>
+      <ResultsDesk v-else-if="activeSection === 'owner-results' && isAdmin" :session="session" />
       <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
       <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" />
       <RewardsDesk v-else-if="activeSection === 'rewards'" :session="session" />
