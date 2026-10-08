@@ -1,4 +1,5 @@
 <script setup>
+import CashAccountPicker from './CashAccountPicker.vue'
 import PartnerReceivables from './PartnerReceivables.vue'
 import PartnerReconciliation from './PartnerReconciliation.vue'
 import { newRequestKey } from '../services/requestKey.js'
@@ -8,9 +9,15 @@ import { productInvoices, productInvoicePdf } from '../services/productInvoices.
 const props = defineProps({ session: { type: Object, required: true }, initialTab: { type: String, default: 'ready' } })
 const tab = ref(['ready', 'invoices', 'receivables', 'reconciliation'].includes(props.initialTab) ? props.initialTab : 'ready'), ready = ref([]), invoices = ref([]), page = ref(0), picked = ref([]), chosenInvoices = ref([])
 const busy = ref(false), error = ref(''), message = ref(''), detail = ref(null), options = ref({ branches: [], payers: [], partners: [] })
+const cashAccount = ref(null)
 const partnerFilter = ref(''), reconciliationPartner = ref(null)
 const payerSearch = ref(''), payer = ref(null), branch = ref(''), note = ref(''), amount = ref(''), advance = ref(''), paymentPending = ref(false)
 let retry = null, paymentRetry = null
+const paymentKey = () => `baget.invoice-payment.${props.session.username || props.session.nickname || 'session'}.${detail.value?.id}`
+function restorePayment() {
+ paymentRetry = JSON.parse(sessionStorage.getItem(paymentKey()) || 'null'); paymentPending.value = !!paymentRetry
+ amount.value = paymentRetry?.amount ?? ''; advance.value = paymentRetry?.allocationAmount ?? ''; cashAccount.value = null
+}
 const money = n => Number(n || 0).toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const status = { ISSUED: 'Виставлено', PARTIALLY_PAID: 'Частково оплачено', PAID: 'Оплачено', CANCELLED: 'Скасовано' }
 const selectedTotal = computed(() => ready.value.filter(p => picked.value.includes(p.productId)).reduce((s, p) => s + Number(p.amount), 0))
@@ -32,7 +39,7 @@ async function load() { if (!['ready', 'invoices'].includes(tab.value)) return; 
 function refresh() { picked.value = []; chosenInvoices.value = []; return run(load) }
 function changeTab(t) { if (busy.value) return; tab.value = t; page.value = 0; if (['ready', 'invoices'].includes(t)) refresh() }
 function reconcilePartner(id) { reconciliationPartner.value = Number(id); tab.value = 'reconciliation' }
-function openReceivable(id) { return run(async () => { detail.value = await productInvoices(props.session.token, `/${id}`); amount.value = ''; advance.value = ''; paymentPending.value = false; note.value = ''; tab.value = 'invoice' }) }
+function openReceivable(id) { return run(async () => { detail.value = await productInvoices(props.session.token, `/${id}`); amount.value = ''; advance.value = ''; restorePayment(); note.value = ''; tab.value = 'invoice' }) }
 function turn(n) { page.value += n; refresh() }
 function findPayer() { return run(async () => { options.value = await productInvoices(props.session.token, `/options?q=${encodeURIComponent(payerSearch.value)}`) }) }
 function useOwner(p) {
@@ -41,7 +48,7 @@ function useOwner(p) {
   branch.value = options.value.branches.find(b => b.mode === 'OWN')?.id || ''
  } else { payer.value = { id: p.customerId, name: p.customerName }; branch.value = p.branchNo }
 }
-function open(id) { return run(async () => { detail.value = await productInvoices(props.session.token, `/${id}`); amount.value = ''; advance.value = ''; paymentPending.value = false }) }
+function open(id) { return run(async () => { detail.value = await productInvoices(props.session.token, `/${id}`); amount.value = ''; advance.value = ''; restorePayment() }) }
 function submit(merge = false) { return run(async () => {
   if (!payer.value || !branch.value) throw new Error('Оберіть платника та філію обліку.')
   if ((!merge && !picked.value.length) || (merge && chosenInvoices.value.length < 2)) throw new Error(merge ? 'Оберіть щонайменше два рахунки з боргом.' : 'Оберіть вироби.')
@@ -55,15 +62,24 @@ function submit(merge = false) { return run(async () => {
   const signature = JSON.stringify([merge, payload]); if (!retry || retry.signature !== signature) retry = { signature, requestKey: newRequestKey() }
   if (!window.confirm(`${merge ? 'Перенести залишки боргу в об’єднаний рахунок' : 'Виставити рахунок'} для «${payer.value.name}»? Сума за поточними даними: ${money(merge ? mergeTotal.value : selectedTotal.value)} грн.`)) return
   detail.value = await productInvoices(props.session.token, merge ? '/merge' : '', { ...payload, requestKey: retry.requestKey })
-  retry = null; picked.value = []; chosenInvoices.value = []; message.value = `Створено рахунок № ${detail.value.invoiceNo}.`; paymentPending.value = false; amount.value = ''; advance.value = ''; await load()
+  retry = null; picked.value = []; chosenInvoices.value = []; message.value = `Створено рахунок № ${detail.value.invoiceNo}.`; restorePayment(); await load()
 }) }
 function payment() { return run(async () => {
-  const { cash, allocated } = paymentAmounts(amount.value, advance.value, detail.value.debt, detail.value.availableAdvance)
-  if (!window.confirm(`Підтвердити оплату ${money(cash)} грн і зарахування авансу ${money(allocated)} грн?`)) return
+  if (!paymentRetry) {
+    const { cash, advance: allocated } = paymentAmounts(amount.value, advance.value, detail.value.debt, detail.value.availableAdvance)
+    if (cash > 0 && !cashAccount.value) throw new Error('Оберіть касу або рахунок для надходження')
+    if (!window.confirm(`Підтвердити оплату ${money(cash)} грн і зарахування авансу ${money(allocated)} грн?`)) return
+    const payload = { cashAccountId: cash > 0 ? cashAccount.value : null, amount: cash, allocationAmount: allocated, expectedDebt: detail.value.debt, note: note.value, requestKey: newRequestKey() }
+    sessionStorage.setItem(paymentKey(), JSON.stringify(payload)); paymentRetry = payload
+  }
   paymentPending.value = true
-  const payload = { amount: cash, allocationAmount: allocated, expectedDebt: detail.value.debt, note: note.value }
-  const signature = JSON.stringify([detail.value.id, payload]); if (!paymentRetry || paymentRetry.signature !== signature) paymentRetry = { signature, requestKey: newRequestKey() }
-  detail.value = await productInvoices(props.session.token, `/${detail.value.id}/payment`, { ...payload, requestKey: paymentRetry.requestKey }); paymentRetry = null; paymentPending.value = false; amount.value = ''; advance.value = ''; message.value = 'Операцію проведено.'; await load()
+  try {
+    detail.value = await productInvoices(props.session.token, `/${detail.value.id}/payment`, paymentRetry)
+    sessionStorage.removeItem(paymentKey()); paymentRetry = null; paymentPending.value = false; amount.value = ''; advance.value = ''; message.value = 'Операцію проведено.'; await load()
+  } catch (e) {
+    if ([400, 403, 404, 409, 422].includes(e.status)) { sessionStorage.removeItem(paymentKey()); paymentRetry = null; paymentPending.value = false }
+    throw e
+  }
 }) }
 function pdf() { return run(() => productInvoicePdf(props.session.token, detail.value.id)) }
 onMounted(() => run(async () => { options.value = await productInvoices(props.session.token, '/options'); if (options.value.branches.length === 1) branch.value = options.value.branches[0].id; await load() }))
@@ -99,8 +115,8 @@ onMounted(() => run(async () => { options.value = await productInvoices(props.se
    <p v-for="target in detail.mergedInto" :key="target.id">Залишок перенесено до <button :disabled="busy" @click="open(target.id)">рахунку № {{ target.invoiceNo }}</button></p>
    <details><summary>Історія рахунку</summary><p v-for="(e, index) in detail.history" :key="index">{{ e.createdAt }} · {{ ({ INVOICE: 'Виставлення', PAYMENT: 'Оплата', ADVANCE_ALLOCATION: 'Зарахування авансу', INVOICE_MERGE_IN: 'Перенесення до нового рахунку', INVOICE_MERGE_OUT: 'Прийнятий борг' })[e.type] || e.type }}: {{ money(e.amount) }} грн. {{ e.note }}</p></details>
    <p>При об’єднанні залишок боргу розподіляється пропорційно між позиціями. Це розподіл залишку для нового документа, а не історія оплати конкретного виробу.</p>
-   <fieldset v-if="detail.lifecycle === 'ACTIVE' && detail.status !== 'CANCELLED' && Number(detail.debt) > 0" :disabled="busy || paymentPending"><legend>Оплата / зарахування авансу</legend><p>Доступний аванс платника: {{ money(detail.availableAdvance) }} грн.</p><div class="tools"><label>Нова оплата, грн<input v-model="amount" type="number" min="0" step="0.01"></label><label>Зарахувати аванс, грн<input v-model="advance" type="number" min="0" step="0.01"></label></div><label v-if="tab === 'invoice'">Примітка до оплати<textarea v-model="note" maxlength="1000"></textarea></label><button @click="payment">Провести операцію</button></fieldset>
-   <p v-if="paymentPending" role="alert">Перед повторною оплатою оновіть рахунок і перевірте результат попередньої операції.</p>
+   <fieldset v-if="detail.lifecycle === 'ACTIVE' && detail.status !== 'CANCELLED' && Number(detail.debt) > 0" :disabled="busy || paymentPending"><legend>Оплата / зарахування авансу</legend><p>Доступний аванс платника: {{ money(detail.availableAdvance) }} грн.</p><div class="tools"><CashAccountPicker v-if="Number(amount) > 0" v-model="cashAccount" :key="detail.id" :session="session" :invoice-id="detail.id" :disabled="busy || paymentPending" /><label>Нова оплата, грн<input v-model="amount" type="number" min="0" step="0.01"></label><label>Зарахувати аванс, грн<input v-model="advance" type="number" min="0" step="0.01"></label></div><label v-if="tab === 'invoice'">Примітка до оплати<textarea v-model="note" maxlength="1000"></textarea></label><button @click="payment">Провести операцію</button></fieldset>
+   <p v-if="paymentPending" role="alert">Результат платежу ще не підтверджений. Повторна перевірка не створює нового платежу. <button :disabled="busy" @click="payment">Перевірити / повторити цей платіж</button></p>
   </article>
   </template>
  </section>

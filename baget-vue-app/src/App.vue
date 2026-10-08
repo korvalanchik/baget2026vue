@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
 import TaskHome from "./components/TaskHome.vue";
+import CashDesk from "./components/CashDesk.vue";
 import RewardsDesk from "./components/RewardsDesk.vue";
 import ResultsDesk from "./components/ResultsDesk.vue";
 import SettingsDesk from "./components/SettingsDesk.vue";
@@ -86,6 +87,7 @@ const navigation = [
   { id: "materials", icon: "▱", label: "Матеріали", access: "materials:read" },
   { id: "scanning", icon: "↗", label: "Сканування", access: "scanning:read" },
   { id: "accountant", icon: "▧", label: "Рахунки за виробами", access: "finance:read" },
+  { id: "cash", icon: "₴", label: "Каси та рахунки", access: "scanning:read" },
   { id: "rewards", icon: "₴", label: "Винагороди", access: "scanning:read" },
   { id: "finance", icon: "₴", label: "Фінанси", access: "finance:read" },
   { id: "owner-results", icon: "▥", label: "Результати роботи" },
@@ -93,7 +95,7 @@ const navigation = [
 ];
 const isAdmin = computed(() => session.value?.roles?.includes("ROLE_ADMIN") === true);
 const allowedNavigation = computed(() =>
-  navigation.filter((item) => item.id === "home" ? true : item.id === "rewards" ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access)),
+  navigation.filter((item) => item.id === "home" ? true : ["rewards", "cash"].includes(item.id) ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access)),
 );
 function completeLogin(newSession) {
   menuOpen.value = false;
@@ -189,6 +191,7 @@ function signOut() {
       <ResultsDesk v-else-if="activeSection === 'owner-results' && isAdmin" :session="session" />
       <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
       <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" :initial-tab="taskContext?.tab" :initial-order-no="taskContext?.orderNo" />
+      <CashDesk v-else-if="activeSection === 'cash'" :session="session" />
       <RewardsDesk v-else-if="activeSection === 'rewards'" :session="session" />
       <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" :initial-customer="taskContext?.customer" />
       <WorkshopDesk v-else-if="activeSection === 'workshop'" :session="session" :initial-order-no="taskContext?.orderNo" @open-finance="activeSection = 'customers'" />
