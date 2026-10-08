@@ -5,8 +5,8 @@ import { newRequestKey } from '../services/requestKey.js'
 import { computed, onMounted, ref } from 'vue'
 import { paymentAmounts } from '../calculation/billing.js'
 import { productInvoices, productInvoicePdf } from '../services/productInvoices.js'
-const props = defineProps({ session: { type: Object, required: true } })
-const tab = ref('ready'), ready = ref([]), invoices = ref([]), page = ref(0), picked = ref([]), chosenInvoices = ref([])
+const props = defineProps({ session: { type: Object, required: true }, initialTab: { type: String, default: 'ready' } })
+const tab = ref(['ready', 'invoices', 'receivables', 'reconciliation'].includes(props.initialTab) ? props.initialTab : 'ready'), ready = ref([]), invoices = ref([]), page = ref(0), picked = ref([]), chosenInvoices = ref([])
 const busy = ref(false), error = ref(''), message = ref(''), detail = ref(null), options = ref({ branches: [], payers: [], partners: [] })
 const partnerFilter = ref(''), reconciliationPartner = ref(null)
 const payerSearch = ref(''), payer = ref(null), branch = ref(''), note = ref(''), amount = ref(''), advance = ref(''), paymentPending = ref(false)
@@ -28,7 +28,7 @@ function choosePartner() {
 }
 const mergeTotal = computed(() => invoices.value.filter(i => chosenInvoices.value.includes(i.id)).reduce((s, i) => s + Number(i.debt), 0))
 async function run(fn) { if (busy.value) return; busy.value = true; error.value = ''; message.value = ''; try { await fn() } catch (e) { error.value = e.message } finally { busy.value = false } }
-async function load() { if (tab.value === 'invoice') return; if (tab.value === 'ready') ready.value = await productInvoices(props.session.token, `/ready?page=${page.value}${partnerFilter.value ? `&partnerId=${partnerFilter.value}` : ''}`); else invoices.value = await productInvoices(props.session.token, `?page=${page.value}`) }
+async function load() { if (!['ready', 'invoices'].includes(tab.value)) return; if (tab.value === 'ready') ready.value = await productInvoices(props.session.token, `/ready?page=${page.value}${partnerFilter.value ? `&partnerId=${partnerFilter.value}` : ''}`); else invoices.value = await productInvoices(props.session.token, `?page=${page.value}`) }
 function refresh() { picked.value = []; chosenInvoices.value = []; return run(load) }
 function changeTab(t) { if (busy.value) return; tab.value = t; page.value = 0; if (['ready', 'invoices'].includes(t)) refresh() }
 function reconcilePartner(id) { reconciliationPartner.value = Number(id); tab.value = 'reconciliation' }

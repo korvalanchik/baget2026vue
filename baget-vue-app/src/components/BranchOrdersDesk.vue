@@ -5,8 +5,8 @@ import { crm } from '../services/crm.js'
 import OrderApprovalsDesk from './OrderApprovalsDesk.vue'
 import CrmIssuePanel from './CrmIssuePanel.vue'
 import ProductQrScanner from './ProductQrScanner.vue'
-const props = defineProps({ session: { type: Object, required: true } })
-const tab = ref('RECEIVE'), rows = ref([]), page = ref(0), more = ref(false), query = ref('')
+const props = defineProps({ session: { type: Object, required: true }, initialTab: { type: String, default: 'RECEIVE' }, initialOrderNo: { type: [Number, String], default: null } })
+const tab = ref(['RECEIVE', 'READY', 'APPROVAL'].includes(props.initialTab) ? props.initialTab : 'RECEIVE'), rows = ref([]), page = ref(0), more = ref(false), query = ref('')
 const detail = ref(null), selected = ref([]), busy = ref(false), locked = ref(false), error = ref(''), notice = ref(''), scanner = ref(false), issuing = ref(false), focused = ref(null)
 const blocked = computed(() => busy.value || locked.value)
 const truth = v => v === true || Number(v) === 1
@@ -42,7 +42,7 @@ function accept() { return run(async()=>{
  if(failure)throw new Error(`${failure} Стан оновлено: перевірте, які вироби ще очікують приймання.`)
  }) }
 async function issued(){ notice.value='Видачу збережено. Дані картки оновлено.';try{detail.value=await warehouse(props.session.token,`/branch-orders/${detail.value.orderNo}`);if(tab.value!=='APPROVAL')await queue()}catch(e){error.value=e.message} }
-onMounted(load)
+onMounted(async () => { if (props.initialOrderNo) await open(props.initialOrderNo); else if (tab.value !== 'APPROVAL') await load() })
 </script>
 <template>
 <section class="branch-orders">

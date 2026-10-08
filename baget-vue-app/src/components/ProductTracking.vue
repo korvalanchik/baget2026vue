@@ -1,4 +1,5 @@
 <script setup>
+import { workshopPrintHtml } from '../calculation/workshopDocument.js'
 import CustomerFinancePanel from './CustomerFinancePanel.vue'
 import { canAcceptCustomerPayment } from '../services/customerPayments.js'
 
@@ -17,12 +18,16 @@ function cancelTransfer() { return run(async () => {
 }) }
 function printLabel() { return run(async () => { label.value = await warehouse(props.session.token, `/products/${data.value.trackingId}/label`) }) }
 function print() {
-  const frame = document.createElement('iframe'); frame.style.position = 'fixed'; frame.style.width = '0'; frame.style.height = '0'; frame.style.border = '0'; document.body.append(frame)
-  const doc = frame.contentDocument
-  const style = doc.createElement('style'); style.textContent = 'body{font:16px sans-serif;padding:10mm}img{width:45mm}p{margin:4mm 0}'; doc.head.append(style)
-  for (const text of [`Замовлення № ${data.value.orderNo} · ${data.value.productName}`, data.value.branchName, ...data.value.materials.slice(0, 3).map(m => m.description)]) { const p = doc.createElement('p'); p.textContent = text; doc.body.append(p) }
-  const img = doc.createElement('img'); img.alt = 'QR виробу'; img.onload = () => { frame.contentWindow.focus(); frame.contentWindow.print(); setTimeout(() => frame.remove(), 1000) }; img.src = label.value.image; doc.body.append(img)
+  if (!data.value || !label.value || busy.value || props.disabled || paymentBusy.value) return
+  const popup = window.open('', '_blank')
+  if (!popup) { error.value = 'Дозвольте відкриття вікна для друку.'; return }
+  popup.opener = null
+  try {
+    const html = workshopPrintHtml({ header: { orderNo: data.value.orderNo, branchName: data.value.branchName }, product: { name: data.value.productName }, labelAllowed: data.value.state === 'COMPLETED' && ![5, 10].includes(Number(data.value.orderStatus)), qrImage: label.value.image }, 'label')
+    popup.document.open(); popup.document.write(html); popup.document.close()
+  } catch (e) { popup.close(); error.value = e.message }
 }
+
 onMounted(() => { if (props.productId || input.value) load() })
 </script>
 <template>
@@ -52,7 +57,7 @@ onMounted(() => { if (props.productId || input.value) load() })
           <button v-if="!data.pending && data.location === 'BRANCH'" type="button" :disabled="busy || disabled || paymentBusy || !data.payment?.canIssue" @click="move(false, 'CUSTOMER')">Передати клієнту</button>
         </template>
       </div>
-      <div v-if="label" class="label"><img :src="label.image" alt="QR виробу"><p>{{ data.orderNo }} · {{ data.productName }}</p><button type="button" @click="print">Друкувати етикетку</button></div>
+      <div v-if="label" class="label"><img :src="label.image" alt="QR виробу"><p>{{ data.orderNo }} · {{ data.productName }}</p><button type="button" :disabled="busy || disabled || paymentBusy" @click="print">Друкувати етикетку</button></div>
       <details><summary>Історія переміщень</summary><p v-if="!data.history.length">Переміщень ще немає.</p><p v-for="(e, i) in data.history" :key="i">{{ e.createdAt }} · {{ e.actor }} · {{ e.action === 'SEND' ? 'Передав' : e.action === 'CANCEL' ? 'Відкликав' : 'Прийняв' }}: {{ locations[e.fromLocation] }} → {{ locations[e.toLocation] }}. {{ e.note }}</p></details>
     </template>
   </section>

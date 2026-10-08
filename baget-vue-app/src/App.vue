@@ -1,7 +1,8 @@
 <script setup>
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
+import TaskHome from "./components/TaskHome.vue";
 import RewardsDesk from "./components/RewardsDesk.vue";
-import OwnerResultsDesk from "./components/OwnerResultsDesk.vue";
+import ResultsDesk from "./components/ResultsDesk.vue";
 import SettingsDesk from "./components/SettingsDesk.vue";
 import BranchOrdersDesk from "./components/BranchOrdersDesk.vue";
 import AccountantDesk from "./components/AccountantDesk.vue";
@@ -18,6 +19,7 @@ import CustomersDesk from "./components/CustomersDesk.vue";
 import WorkshopDesk from "./components/WorkshopDesk.vue";
 import { canAccess, clearSession, restoreSession } from "./services/auth.js";
 
+const taskContext = ref(null);
 const menuOpen = ref(false);
 const mobile = ref(window.matchMedia("(max-width: 750px)").matches);
 const menuButton = ref(null), sidebar = ref(null), content = ref(null);
@@ -32,6 +34,7 @@ async function openMenu() {
   sidebar.value?.querySelector("button")?.focus();
 }
 function selectSection(id) {
+  taskContext.value = null;
   activeSection.value = id;
   closeMenu();
 }
@@ -62,8 +65,9 @@ onMounted(() => mobileQuery.addEventListener("change", resizeMenu));
 onBeforeUnmount(() => mobileQuery.removeEventListener("change", resizeMenu));
 
 const session = ref(restoreSession());
-const activeSection = ref(scannedProduct ? 'scanning' : canAccess(session.value, 'orders:create') ? 'new-order' : canAccess(session.value, 'workshop:read') ? 'workshop' : 'scanning');
+const activeSection = ref(scannedProduct ? 'scanning' : 'home');
 const navigation = [
+  { id: "home", icon: "⌂", label: "Мої завдання" },
   {
     id: "new-order",
     icon: "＋",
@@ -89,16 +93,22 @@ const navigation = [
 ];
 const isAdmin = computed(() => session.value?.roles?.includes("ROLE_ADMIN") === true);
 const allowedNavigation = computed(() =>
-  navigation.filter((item) => item.id === "rewards" ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access)),
+  navigation.filter((item) => item.id === "home" ? true : item.id === "rewards" ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access)),
 );
 function completeLogin(newSession) {
   menuOpen.value = false;
   session.value = newSession;
-  activeSection.value = scannedProduct ? "scanning" : canAccess(newSession, "orders:create")
-    ? "new-order"
-    : allowedNavigation.value[0]?.id;
+  taskContext.value = null;
+  activeSection.value = scannedProduct ? "scanning" : "home";
+}
+function taskNavigate(target) {
+  if (!allowedNavigation.value.some(item => item.id === target.section)) return;
+  taskContext.value = target;
+  activeSection.value = target.section;
+  closeMenu();
 }
 function signOut() {
+  taskContext.value = null;
   scanBusy.value = false; scanTracking.value = false;
   menuOpen.value = false;
   clearSession();
@@ -172,16 +182,17 @@ function signOut() {
           </button>
         </div>
       </header>
-      <section v-if="activeSection === 'new-order'">
+      <TaskHome v-if="activeSection === 'home'" :session="session" @navigate="taskNavigate" />
+      <section v-else-if="activeSection === 'new-order'">
         <EstimateCalculator :session="session" />
       </section>
-      <OwnerResultsDesk v-else-if="activeSection === 'owner-results' && isAdmin" :session="session" />
+      <ResultsDesk v-else-if="activeSection === 'owner-results' && isAdmin" :session="session" />
       <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
-      <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" />
+      <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" :initial-tab="taskContext?.tab" :initial-order-no="taskContext?.orderNo" />
       <RewardsDesk v-else-if="activeSection === 'rewards'" :session="session" />
-      <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" />
-      <WorkshopDesk v-else-if="activeSection === 'workshop'" :session="session" @open-finance="activeSection = 'customers'" />
-      <AccountantDesk v-else-if="activeSection === 'accountant'" :session="session" />
+      <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" :initial-customer="taskContext?.customer" />
+      <WorkshopDesk v-else-if="activeSection === 'workshop'" :session="session" :initial-order-no="taskContext?.orderNo" @open-finance="activeSection = 'customers'" />
+      <AccountantDesk v-else-if="activeSection === 'accountant'" :session="session" :initial-tab="taskContext?.tab" />
       <MaterialsDesk v-else-if="activeSection === 'materials'" :session="session" />
       <WarehouseDesk v-else-if="activeSection === 'warehouse'" :session="session" />
       <section v-else-if="activeSection === 'scanning'" style="padding:16px">

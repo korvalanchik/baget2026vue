@@ -9,7 +9,7 @@ import PickupActions from './PickupActions.vue'
 import { crm } from '../services/crm.js'
 import { canAcceptCustomerPayment } from '../services/customerPayments.js'
 import { outcomes, locations, productionStates, orderStates, phoneLink, contactPayload, groupedOrders } from '../calculation/crm.js'
-const props = defineProps({ session: { type: Object, required: true } })
+const props = defineProps({ session: { type: Object, required: true }, initialCustomer: { type: Object, default: null } })
 const emit = defineEmits(['finance'])
 const cardElement = ref(null), listElement = ref(null), cardTab = ref('contact'), showLinks = ref(false)
 const qrOpen = ref(false), qrBusy = ref(false)
@@ -131,7 +131,11 @@ onMounted(async () => {
   window.addEventListener('beforeunload', preventLeave)
   formBaseline.value = JSON.stringify(form)
   try { branches.value = await api('/branches') } catch (e) { error.value = e.message; return }
+  if (props.initialCustomer) {
+    filters.branch = String(props.initialCustomer.branchNo); filters.all = true
+  }
   await board()
+  if (props.initialCustomer) await open(props.initialCustomer)
 })
 </script>
 <template>

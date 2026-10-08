@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import ProductWorkshopCard from './ProductWorkshopCard.vue'
 import { loadWorkshopOrders, loadWorkshopOrder, saveWorkshopOrder, workshopColumns, millimeters, urgency } from '../services/workshop.js'
 
-const props = defineProps({ session: { type: Object, required: true } })
+const props = defineProps({ session: { type: Object, required: true }, initialOrderNo: { type: [Number, String], default: null } })
 const orders = ref([])
 const productionDirty = ref(false)
 const loading = ref(false)
@@ -103,7 +103,7 @@ function productionChanged(data) {
   selected.value.statusOrder = data.status
   orders.value = orders.value.map(o => String(o.orderNo) === String(data.orderNo) ? { ...o, statusOrder: data.status } : o)
 }
-onMounted(refresh)
+onMounted(async () => { await refresh(); if (props.initialOrderNo) await open({ orderNo: props.initialOrderNo }) })
 </script>
 
 <template>
@@ -142,7 +142,7 @@ onMounted(refresh)
       <form v-if="selected && draft" @submit.prevent="save">
         <header><div><p>Картка виробництва</p><h2 id="workshop-title">Замовлення № {{ selected.orderNo }}</h2></div><button type="button" class="icon-button" aria-label="Закрити" :disabled="saving" @click="close()">×</button></header>
         <div class="workshop-details"><span>Філія<strong>{{ selected.branchName || '—' }}</strong></span><span>Клієнт<strong>{{ selected.company || '—' }}</strong></span><span>Прийнято<strong>{{ formatDate(selected.saleDate) }}</strong></span><span>Термін<strong>{{ formatDate(selected.shipDate) }}</strong></span></div>
-        <ProductWorkshopCard v-if="selected.calculationRevision" :session="session" :order-no="Number(selected.orderNo)" @dirty="productionDirty = $event" @busy="saving = $event" @changed="productionChanged" />
+        <ProductWorkshopCard v-if="selected.calculationRevision" :session="session" :order-no="Number(selected.orderNo)" :order-header="selected" @dirty="productionDirty = $event" @busy="saving = $event" @changed="productionChanged" />
         <template v-else>
         <fieldset :disabled="saving || !editable"><legend>Статус виробництва</legend><div class="workshop-statuses"><label v-for="status in [{ id: 1, name: 'Треба зробити' }, { id: 2, name: 'В роботі' }, { id: 3, name: 'Зроблено' }, ...(Number(selected.statusOrder) === 6 ? [{ id: 6, name: 'Пораховано' }] : [])]" :key="status.id"><input v-model="draft.statusOrder" type="radio" :value="status.id">{{ status.name }}</label></div></fieldset>
         <h3>Позиції замовлення <small>Розміри в мм</small></h3>
