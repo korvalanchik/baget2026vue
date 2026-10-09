@@ -9,7 +9,7 @@ const busy = ref(false), loading = ref(false), error = ref(''), notice = ref('')
 const storageKey = `cash-reconciliation:${props.session.username || props.session.nickname || props.session.token}:${props.account.id}`
 const money = n => Number(n || 0).toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const time = value => String(value || '').replace('T', ' ')
-const categories = { CASH_OPENING: 'Початковий залишок, внесений цього дня', CASH_TRANSFER: 'Передача коштів', MANAGER_REWARD: 'Винагорода / скасування помилкової виплати', PAYMENT_RECEIVED: 'Оплата клієнтів', CUSTOMER_ADVANCE: 'Аванси клієнтів', CUSTOMER_REFUND: 'Повернення клієнтам' }
+const categories = { OVERHEAD_EXPENSE: 'Поточні витрати / сторно', CASH_OPENING: 'Початковий залишок, внесений цього дня', CASH_TRANSFER: 'Передача коштів', MANAGER_REWARD: 'Винагорода / скасування помилкової виплати', PAYMENT_RECEIVED: 'Оплата клієнтів', CUSTOMER_ADVANCE: 'Аванси клієнтів', CUSTOMER_REFUND: 'Повернення клієнтам', MATERIAL_PURCHASE: 'Оплата матеріалів / сторно', PURCHASE_DELIVERY: 'Доставка закупівлі / сторно', PURCHASE_PROCUREMENT: 'Спільні витрати закупівлі / сторно', PURCHASE_DIRECT: 'Прямі витрати закупівлі / сторно' }
 const difference = computed(() => actual.value === '' || !report.value ? null : Math.round((Number(actual.value) - Number(report.value.totals.expected)) * 100) / 100)
 function snapshot(row) { try { return typeof row.snapshot === 'string' ? JSON.parse(row.snapshot) : row.snapshot } catch { return null } }
 async function loadHistory(next = 0) { history.value = await cashApi(props.session.token, `/accounts/${props.account.id}/reconciliations?page=${next}`); page.value = next }
