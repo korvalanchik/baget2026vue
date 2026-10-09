@@ -1,9 +1,11 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import CashReconciliation from './CashReconciliation.vue'
 import { cashApi } from '../services/cash.js'
 import { newRequestKey } from '../services/requestKey.js'
 const props = defineProps({ session: { type: Object, required: true } })
 const data = ref(null), options = ref({ branches: [] }), busy = ref(false), error = ref(''), message = ref('')
+const reconciliationAccount = ref(null), differences = ref([])
 const selected = ref(null), journal = ref(null), page = ref(0)
 const create = ref({ name: '', kind: 'BRANCH_CASH', branchNo: '' })
 const opening = ref({ accountId: '', amount: '', note: '' })
@@ -18,7 +20,7 @@ const sources = computed(() => (data.value?.accounts || []).filter(a => initiali
 const destinations = computed(() => (data.value?.canEdit ? sources.value : data.value?.destinations || []).filter(a => Number(a.id) !== Number(send.value.sourceId)))
 async function load() {
  error.value = ''
- try { const [overview, settings] = await Promise.all([cashApi(props.session.token), cashApi(props.session.token, '/options')]); data.value = overview; options.value = settings }
+ try { const [overview, settings] = await Promise.all([cashApi(props.session.token), cashApi(props.session.token, '/options')]); data.value = overview; options.value = settings; differences.value = overview.canConfigure ? await cashApi(props.session.token, '/reconciliation-differences') : [] }
  catch (e) { data.value = null; error.value = e.message }
 }
 async function ledger(account, next = 0) {
@@ -55,7 +57,9 @@ onMounted(async () => { try { pending.value = JSON.parse(sessionStorage.getItem(
  <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="message" role="status">{{ message }}</p>
  <aside v-if="pending" class="warning">Є незавершений запит на {{ money(pending.body.amount) }} грн. Повторна перевірка використовує той самий ключ і не дублює операцію. <button :disabled="busy" @click="retry">Перевірити / повторити</button></aside>
  <template v-if="data">
- <div class="accounts"><article v-for="a in data.accounts" :key="a.id"><small>{{ types[a.kind] }} · {{ a.branchName }}</small><h3>{{ a.name }}</h3><strong>{{ money(a.balance) }} грн</strong><p v-if="!initialized(a)">Потрібен початковий залишок</p><button @click="ledger(a)">Рух коштів</button></article></div>
+ <div class="accounts"><article v-for="a in data.accounts" :key="a.id"><small>{{ types[a.kind] }} · {{ a.branchName }}</small><h3>{{ a.name }}</h3><strong>{{ money(a.balance) }} грн</strong><p v-if="!initialized(a)">Потрібен початковий залишок</p><button @click="ledger(a)">Рух коштів</button><button v-if="initialized(a) && ['BRANCH_CASH', 'CENTRAL_CASH'].includes(a.kind)" @click="reconciliationAccount = a">Звірити готівку</button></article></div>
+ <CashReconciliation v-if="reconciliationAccount" :key="reconciliationAccount.id" :account="reconciliationAccount" :session="session" @saved="load" />
+ <section v-if="data.canConfigure"><h3>Розбіжності за останньою звіркою кожної каси</h3><p>Показано останній збережений перерахунок, який може бути за попередній день. Повна історія залишається в касі.</p><p v-if="!differences.length">У останніх збережених звірках розбіжностей немає. Каси без звірок цим не підтверджені.</p><div class="accounts"><article v-for="r in differences" :key="r.id"><strong>{{ r.accountName }}</strong><p>{{ r.day }} · {{ r.actor }}</p><p>{{ Number(r.difference) < 0 ? 'Нестача' : 'Надлишок' }}: {{ money(Math.abs(Number(r.difference))) }} грн</p><p>{{ r.note }}</p><button @click="reconciliationAccount = data.accounts.find(a => Number(a.id) === Number(r.accountId))">Відкрити звірку</button></article></div></section>
  <p v-if="!data.accounts.length">Каси ще не налаштовані або недоступні для вашої філії.</p>
  <details v-if="data.canConfigure"><summary>Налаштувати каси та початкові залишки</summary><p>Спочатку створіть центральну касу, потім каси власних філій і банківські рахунки. Для кожної вкажіть фактичний залишок на момент початку обліку, навіть якщо це 0. Давні платежі автоматично не переносяться.</p>
  <form @submit.prevent="execute('/accounts', { ...create, branchNo: Number(create.branchNo) })"><h3>Нова каса / рахунок</h3><div class="fields"><label>Назва<input v-model.trim="create.name" required maxlength="150"></label><label>Тип<select v-model="create.kind"><option value="BRANCH_CASH">Каса філії</option><option value="CENTRAL_CASH">Центральна каса</option><option value="BANK">Банківський рахунок</option></select></label><label>Власна філія обліку<select v-model="create.branchNo" required><option disabled value="">Оберіть</option><option v-for="b in options.branches" :key="b.id" :value="b.id">{{ b.name }}</option></select></label></div><button :disabled="busy || !!pending">Створити</button></form>
