@@ -1,22 +1,14 @@
 <script setup>
-import SettingsSection from './SettingsSection.vue'
+import { ref } from 'vue'
+import DeskLayout from './DeskLayout.vue'
 import UserAdministration from './UserAdministration.vue'
 import CommercialDesk from './CommercialDesk.vue'
 import RewardsDesk from './RewardsDesk.vue'
 import CostUpdateDesk from './CostUpdateDesk.vue'
+import CashDesk from './CashDesk.vue'
 defineProps({ session: { type: Object, required: true } })
+const active = ref('branches')
+const tabs = [{ id: 'branches', label: 'Філії та прайси' }, { id: 'cash', label: 'Каси та рахунки' }, { id: 'rewards', label: 'Відсотки винагород' }, { id: 'cost', label: 'Собівартість' }, { id: 'users', label: 'Користувачі та доступ' }]
+const components = { branches: CommercialDesk, cash: CashDesk, rewards: RewardsDesk, cost: CostUpdateDesk, users: UserAdministration }
 </script>
-<template>
- <section class="settings-desk">
-  <header><h1>Налаштування</h1><p>Оберіть розділ, щоб переглянути або змінити його параметри.</p></header>
-  <div class="sections">
-   <SettingsSection title="Філії та ціноутворення" description="Тип філії, фірма-посередник і правила вибору прайсів для нових замовлень."><CommercialDesk :session="session" /></SettingsSection>
-   <SettingsSection title="Винагороди менеджерів" description="Увімкнення нарахувань, загальний відсоток і персональні ставки менеджерів."><RewardsDesk :session="session" settings-only /></SettingsSection>
-   <SettingsSection title="Розрахункова собівартість матеріалів" description="Накладні витрати, перегляд і підтвердження оновлення Parts.Cost. Доступно адміністратору."><CostUpdateDesk :session="session" /></SettingsSection>
-   <SettingsSection title="Користувачі та доступ" description="Облікові записи, ролі, дозволені філії та блокування доступу."><UserAdministration :session="session" /></SettingsSection>
-  </div>
- </section>
-</template>
-<style scoped>
-.settings-desk{max-width:1100px;margin:auto;padding:24px;color:#233442}.settings-desk>header{margin-bottom:20px}h1{font-size:26px;margin:0 0 8px}p{font-size:14px;color:#617580;line-height:1.5;margin:0}.sections{display:grid;gap:14px;align-items:start}@media(max-width:650px){.settings-desk{padding:12px}h1{font-size:22px}.sections{gap:10px}}
-</style>
+<template><DeskLayout title="Налаштування" description="Параметри підприємства, кас, винагород і доступу користувачів." :tabs="tabs" v-model="active"><KeepAlive><component :is="components[active]" :key="active" :session="session" v-bind="active === 'rewards' || active === 'cash' ? { settingsOnly: true } : {}" /></KeepAlive></DeskLayout></template>

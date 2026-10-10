@@ -2,8 +2,9 @@
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
 import TaskHome from "./components/TaskHome.vue";
 import CashDesk from "./components/CashDesk.vue";
-import RewardsDesk from "./components/RewardsDesk.vue";
-import ResultsDesk from "./components/ResultsDesk.vue";
+import FinanceDesk from "./components/FinanceDesk.vue";
+import DeskLayout from "./components/DeskLayout.vue";
+import { financeTarget } from "./services/financeNavigation.js";
 import SettingsDesk from "./components/SettingsDesk.vue";
 import BranchOrdersDesk from "./components/BranchOrdersDesk.vue";
 import AccountantDesk from "./components/AccountantDesk.vue";
@@ -88,14 +89,12 @@ const navigation = [
   { id: "scanning", icon: "↗", label: "Сканування", access: "scanning:read" },
   { id: "accountant", icon: "▧", label: "Рахунки за виробами", access: "finance:read" },
   { id: "cash", icon: "₴", label: "Каси та рахунки", access: "scanning:read" },
-  { id: "rewards", icon: "₴", label: "Винагороди", access: "scanning:read" },
   { id: "finance", icon: "₴", label: "Фінанси", access: "finance:read" },
-  { id: "owner-results", icon: "▥", label: "Результати роботи" },
   { id: "settings", icon: "⚙", label: "Налаштування" },
 ];
 const isAdmin = computed(() => session.value?.roles?.includes("ROLE_ADMIN") === true);
 const allowedNavigation = computed(() =>
-  navigation.filter((item) => item.id === "home" ? true : ["rewards", "cash"].includes(item.id) ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access)),
+  navigation.filter((item) => item.id === "home" ? true : ["finance", "cash"].includes(item.id) ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access)),
 );
 function completeLogin(newSession) {
   menuOpen.value = false;
@@ -104,6 +103,7 @@ function completeLogin(newSession) {
   activeSection.value = scannedProduct ? "scanning" : "home";
 }
 function taskNavigate(target) {
+  target = financeTarget(target);
   if (!allowedNavigation.value.some(item => item.id === target.section)) return;
   taskContext.value = target;
   activeSection.value = target.section;
@@ -188,11 +188,10 @@ function signOut() {
       <section v-else-if="activeSection === 'new-order'">
         <EstimateCalculator :session="session" />
       </section>
-      <ResultsDesk v-else-if="activeSection === 'owner-results' && isAdmin" :session="session" />
       <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
       <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" :initial-tab="taskContext?.tab" :initial-order-no="taskContext?.orderNo" />
-      <CashDesk v-else-if="activeSection === 'cash'" :session="session" />
-      <RewardsDesk v-else-if="activeSection === 'rewards'" :session="session" />
+      <DeskLayout v-else-if="activeSection === 'cash' && canAcceptCustomerPayment(session)" title="Каси та рахунки" description="Щоденна робота з коштами філій та центральної каси."><CashDesk :session="session" @open-purchase="taskNavigate({ section: 'finance', tab: 'purchases', receiptId: $event })" /></DeskLayout>
+      <FinanceDesk v-else-if="activeSection === 'finance' && canAcceptCustomerPayment(session)" :session="session" :initial-tab="taskContext?.tab" :initial-receipt-id="taskContext?.receiptId" />
       <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" :initial-customer="taskContext?.customer" />
       <WorkshopDesk v-else-if="activeSection === 'workshop'" :session="session" :initial-order-no="taskContext?.orderNo" @open-finance="activeSection = 'customers'" />
       <AccountantDesk v-else-if="activeSection === 'accountant'" :session="session" :initial-tab="taskContext?.tab" />

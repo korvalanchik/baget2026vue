@@ -1,9 +1,13 @@
 <script setup>
 import { ref } from 'vue'
+import DeskTabs from './DeskTabs.vue'
 import OwnerResultsDesk from './OwnerResultsDesk.vue'
 import PartnerResultsDesk from './PartnerResultsDesk.vue'
+import CashReceiptsDesk from './CashReceiptsDesk.vue'
 defineProps({ session: { type: Object, required: true } })
 const tab = ref('own')
+const tabs = [{ id: 'own', label: 'Власні філії' }, { id: 'partner', label: 'Фірми-посередники' }, { id: 'cash', label: 'Надходження від клієнтів' }]
+const components = { own: OwnerResultsDesk, partner: PartnerResultsDesk, cash: CashReceiptsDesk }
 </script>
-<template><section><nav class="results-tabs" aria-label="Розділи результатів"><button :aria-pressed="tab === 'own'" @click="tab = 'own'">Власні філії</button><button :aria-pressed="tab === 'partner'" @click="tab = 'partner'">Фірми-посередники</button></nav><OwnerResultsDesk v-if="tab === 'own'" :session="session" /><PartnerResultsDesk v-else :session="session" /></section></template>
-<style scoped>.results-tabs{display:flex;gap:10px;flex-wrap:wrap;padding:16px 20px 0}.results-tabs button{font:inherit;padding:12px;border:1px solid #bdccd4;border-radius:8px;cursor:pointer;background:white}.results-tabs button[aria-pressed=true]{background:#185c63;color:white}@media(max-width:650px){.results-tabs button{flex:1}}</style>
+<template><section class="reports"><h2>Звіти</h2><DeskTabs :tabs="tabs" v-model="tab" label="Види звітів" /><KeepAlive><component :is="components[tab]" :key="tab" :session="session" /></KeepAlive></section></template>
+<style scoped>.reports :deep(>section){padding:0;margin:0;max-width:none}.reports h2{margin-top:0}</style>
