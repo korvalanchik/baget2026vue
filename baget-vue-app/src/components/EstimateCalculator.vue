@@ -1,4 +1,5 @@
 <script setup>
+import { leadTimeSettings } from '../services/leadTimeSettings.js'
 import { kyivToday, leadTime, shortageMaterials } from '../calculation/leadTime.js' 
 import PriceApprovalPanel from './PriceApprovalPanel.vue'
 import CustomerFinancePanel from './CustomerFinancePanel.vue'
@@ -57,10 +58,16 @@ const savedOrder = ref(null);
 const savedDirty = ref(false);
 const deadlineStart = ref(kyivToday());
 const shortages = computed(() => shortageMaterials(savedOrder.value));
-const timing = computed(() => leadTime(details.dueDate, deadlineStart.value, shortages.value.length > 0));
+const leadConfig = ref(null), leadError = ref(''), leadBusy = ref(false);
+async function loadLeadSettings() {
+ if (leadBusy.value) return;
+ leadBusy.value = true; leadError.value = ''; leadConfig.value = null;
+ try { leadConfig.value = await leadTimeSettings(props.session.token); } catch (e) { leadError.value = e.message; } finally { leadBusy.value = false; }
+}
+const timing = computed(() => leadConfig.value ? leadTime(details.dueDate, deadlineStart.value, shortages.value.length > 0, leadConfig.value) : {});
 const shortDate = value => value ? value.split('-').reverse().join('.') : '';
 function applySuggestedDate() {
-  if (orderBusy.value || (savedOrder.value && savedOrder.value.statusOrder !== 1)) return;
+  if (!leadConfig.value || orderBusy.value || (savedOrder.value && savedOrder.value.statusOrder !== 1)) return;
   details.dueDate = timing.value.target;
 }
 const openNumber = ref("");
@@ -385,6 +392,7 @@ function reset() {
   artworks.value = [newArtwork(`art-${nextId++}`)];
 }
 onMounted(loadCatalog);
+onMounted(loadLeadSettings);
 onBeforeUnmount(() => {
   revision++;
   controller?.abort();
@@ -461,16 +469,17 @@ onBeforeUnmount(() => {
               >Строк готовності<input v-model="details.dueDate" type="date"
             /></label>
           </div>
-          <aside class="deadline-info" :class="{ 'deadline-warning': timing.warning || shortages.length }" aria-live="polite">
-            <strong>Строк виконання: 5–7 робочих днів</strong>
+          <p v-if="leadError" role="alert">{{ leadError }}. Рекомендовані строки недоступні.</p><button type="button" :disabled="leadBusy" @click="loadLeadSettings">{{ leadBusy ? 'Завантаження строків…' : 'Оновити строки виконання' }}</button>
+          <aside v-if="leadConfig" class="deadline-info" :class="{ 'deadline-warning': timing.warning || shortages.length }" aria-live="polite">
+            <strong>Строк виконання: {{ leadConfig.minDays }}–{{ leadConfig.normalDays }} робочих днів</strong>
             <p>Від сьогодні: {{ shortDate(timing.earliest) }}–{{ shortDate(timing.normal) }}. Робочі дні: понеділок–п’ятниця, день оформлення не враховується.</p>
             <p v-if="!savedOrder">Наявність матеріалів буде перевірено під час збереження та резервування.</p>
             <template v-if="shortages.length">
-              <p><strong>У резерві є дефіцит. Орієнтир готовності — 10 робочих днів: {{ shortDate(timing.extended) }}.</strong> Строк залежить від постачання. Узгодьте його з клієнтом або замініть матеріал.</p>
+              <p><strong>У резерві є дефіцит. Орієнтир готовності — {{ leadConfig.shortageDays }} робочих днів: {{ shortDate(timing.extended) }}.</strong> Строк залежить від постачання. Узгодьте його з клієнтом або замініть матеріал.</p>
               <ul><li v-for="m in shortages" :key="`${m.productId}-${m.partNo}`">{{ m.productName }} · {{ m.description }}: не вистачає {{ amount(m.shortage) }} {{ units[m.unit] || m.unit }}</li></ul>
               <p v-if="savedDirty">Склад або дані змінено. Дефіцит показано за останнім збереженим резервом; збережіть зміни для повторної перевірки.</p>
             </template>
-            <p v-if="timing.warning" role="alert">Обрана дата раніша за {{ shortages.length ? '10' : '5' }} робочих днів. Можлива затримка виконання.</p>
+            <p v-if="timing.warning" role="alert">Обрана дата раніша за {{ shortages.length ? leadConfig.shortageDays : leadConfig.minDays }} робочих днів. Можлива затримка виконання.</p>
             <button v-if="timing.warning || (!details.dueDate && shortages.length)" type="button" @click="applySuggestedDate">Встановити {{ shortDate(timing.target) }}</button>
             <p v-if="savedOrder && savedDirty">Щоб зафіксувати нову дату, збережіть зміни замовлення.</p>
           </aside>

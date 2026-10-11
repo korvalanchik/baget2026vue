@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { apiOrigin, canAccess } from '../services/auth.js'
 import PriceApprovalPanel from './PriceApprovalPanel.vue'
+import DeadlineTasks from './DeadlineTasks.vue'
 const props = defineProps({ session: { type: Object, required: true } })
 const emit = defineEmits(['navigate'])
 const overview = ref(null), group = ref(''), task = ref(null), rows = ref([]), page = ref(0), more = ref(false)
@@ -59,6 +60,7 @@ onMounted(refresh)
   <p v-if="busy" role="status">Завантаження…</p>
   <template v-if="overview">
    <nav v-if="overview.groups.length > 1" aria-label="Робоча роль"><button v-for="g in overview.groups" :key="g" :aria-pressed="group === g" :disabled="busy || financeBusy" @click="chooseGroup(g)">{{ labels[g] }}</button></nav>
+   <DeadlineTasks v-if="['manager', 'workshop', 'admin'].includes(group)" :session="session" @navigate="emit('navigate', $event)" />
    <p class="scope">{{ overview.scope }} · Оновлено {{ new Date(overview.asOf).toLocaleString('uk-UA', {timeZone:'Europe/Kyiv'}) }}</p>
    <template v-if="!selected">
     <div v-if="cards.length" class="tasks"><button v-for="c in cards" :key="c.key" :aria-pressed="task?.key === c.key" :disabled="busy" @click="loadQueue(c)"><span>{{ c.title }}</span><strong>{{ c.count }}</strong><small>{{ c.unit }}</small></button></div>

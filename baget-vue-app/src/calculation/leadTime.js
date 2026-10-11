@@ -18,8 +18,8 @@ export function addWorkingDays(start, count) {
   }
   return d.toISOString().slice(0, 10)
 }
-export function leadTime(due, start, shortage = false) {
-  const earliest = addWorkingDays(start, 5), normal = addWorkingDays(start, 7), extended = addWorkingDays(start, 10)
+export function leadTime(due, start, shortage = false, settings = { minDays: 5, normalDays: 7, shortageDays: 10 }) {
+  const earliest = addWorkingDays(start, settings.minDays), normal = addWorkingDays(start, settings.normalDays), extended = addWorkingDays(start, settings.shortageDays)
   const target = shortage ? extended : earliest
   return { earliest, normal, extended, target, warning: Boolean(date(due) && target && due < target) }
 }

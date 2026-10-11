@@ -1,15 +1,31 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, ref } from 'vue'
 import { cashApi } from '../services/cash.js'
 import { newRequestKey } from '../services/requestKey.js'
-const props = defineProps({ session: { type: Object, required: true }, account: { type: Object, required: true } })
+const props = defineProps({ session: { type: Object, required: true }, account: { type: Object, required: true }, endOfDay: Boolean, initialDay: String })
 const emit = defineEmits(['saved'])
-const report = ref(null), history = ref(null), day = ref(''), actual = ref(''), note = ref(''), page = ref(0)
+const report = ref(null), history = ref(null), day = ref(props.initialDay || ''), actual = ref(''), note = ref(''), page = ref(0)
 const busy = ref(false), loading = ref(false), error = ref(''), notice = ref(''), pending = ref(null)
 const storageKey = `cash-reconciliation:${props.session.username || props.session.nickname || props.session.token}:${props.account.id}`
 const money = n => Number(n || 0).toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const time = value => String(value || '').replace('T', ' ')
 const categories = { OVERHEAD_EXPENSE: 'Поточні витрати / сторно', CASH_OPENING: 'Початковий залишок, внесений цього дня', CASH_TRANSFER: 'Передача коштів', MANAGER_REWARD: 'Винагорода / скасування помилкової виплати', PAYMENT_RECEIVED: 'Оплата клієнтів', CUSTOMER_ADVANCE: 'Аванси клієнтів', CUSTOMER_REFUND: 'Повернення клієнтам', MATERIAL_PURCHASE: 'Оплата матеріалів / сторно', PURCHASE_DELIVERY: 'Доставка закупівлі / сторно', PURCHASE_PROCUREMENT: 'Спільні витрати закупівлі / сторно', PURCHASE_DIRECT: 'Прямі витрати закупівлі / сторно' }
+const statusLabels = { NONE: 'Підсумок дня ще не підтверджено', CONFIRMED: 'Підсумок підтверджено — суми збігаються', DIFFERENCE: 'Підсумок підтверджено з розбіжністю', STALE: 'Після звірки були операції — потрібно звірити повторно' }
+let timer = null, checking = false, disposed = false, active = true
+async function refreshStatus() {
+ if (checking || busy.value || loading.value || pending.value || !report.value || (typeof document !== 'undefined' && document.hidden)) return
+ checking = true; const currentDay = report.value.day
+ try {
+  const fresh = await cashApi(props.session.token, `/accounts/${props.account.id}/day?day=${encodeURIComponent(currentDay)}`)
+  if (busy.value || loading.value || pending.value || report.value?.day !== currentDay) return
+  if (fresh.totals.lastLedgerId !== report.value.totals.lastLedgerId || Number(fresh.totals.expected) !== Number(report.value.totals.expected)) { actual.value = ''; notice.value = 'Рух коштів змінився. Перерахуйте готівку та введіть фактичну суму повторно.' }
+  report.value = fresh
+ } catch { notice.value = 'Не вдалося перевірити актуальність підсумку. Оновіть дані перед підтвердженням.' }
+ finally { checking = false }
+}
+function startChecking() { if (!timer && active && !disposed) timer = setInterval(refreshStatus, 30000) }
+function stopChecking() { if (timer) clearInterval(timer); timer = null }
+onBeforeUnmount(() => { disposed = true; stopChecking() }); onDeactivated(() => { active = false; stopChecking() }); onActivated(() => { active = true; startChecking(); refreshStatus() })
 const difference = computed(() => actual.value === '' || !report.value ? null : Math.round((Number(actual.value) - Number(report.value.totals.expected)) * 100) / 100)
 function snapshot(row) { try { return typeof row.snapshot === 'string' ? JSON.parse(row.snapshot) : row.snapshot } catch { return null } }
 async function loadHistory(next = 0) { history.value = await cashApi(props.session.token, `/accounts/${props.account.id}/reconciliations?page=${next}`); page.value = next }
@@ -31,26 +47,28 @@ async function save() {
    sessionStorage.setItem(storageKey, JSON.stringify(body)); pending.value = body
   }
   const result = await cashApi(props.session.token, '/reconciliations', pending.value)
-  sessionStorage.removeItem(storageKey); pending.value = null; actual.value = ''; note.value = ''; notice.value = result.message; await loadHistory(); emit('saved')
+  sessionStorage.removeItem(storageKey); pending.value = null; actual.value = ''; note.value = ''; notice.value = props.endOfDay ? 'Підсумок дня підтверджено. Касові операції залишаються доступними.' : result.message; emit('saved'); await loadHistory(); report.value = await cashApi(props.session.token, `/accounts/${props.account.id}/day?day=${encodeURIComponent(day.value)}`)
  } catch (e) {
   error.value = e.message
   if ([400, 403, 404, 409, 422].includes(e.status)) { sessionStorage.removeItem(storageKey); pending.value = null; report.value = null; actual.value = '' }
  } finally { busy.value = false }
 }
-onMounted(async () => { try { pending.value = JSON.parse(sessionStorage.getItem(storageKey) || 'null') } catch (e) { error.value = 'Не вдалося прочитати збережений запит' } await load() })
+onMounted(async () => { try { pending.value = JSON.parse(sessionStorage.getItem(storageKey) || 'null') } catch (e) { error.value = 'Не вдалося прочитати збережений запит' } await load(); startChecking() })
 </script>
 <template>
 <section class="reconciliation">
- <header><h3>Звірка каси · {{ account.name }}</h3><button :disabled="busy || loading" @click="load">Оновити дані</button></header>
- <p>Звіряємо готівку на момент перерахунку. Запис не закриває день, не змінює залишок каси й не списує різницю.</p>
+ <header><h3>{{ endOfDay ? 'Завершення дня' : 'Звірка каси' }} · {{ account.name }}</h3><button :disabled="busy || loading" @click="load">Оновити дані</button></header>
+ <p>Підтверджуємо готівку на момент перерахунку. Підсумок не блокує наступні операції, не змінює залишок і не списує різницю. Наявна звірка за сьогодні також є підтвердженням підсумку.</p>
  <p v-if="error" class="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
  <aside v-if="pending">Є непідтверджений запит звірки за {{ pending.day }}: фактично {{ money(pending.actualAmount) }} грн. <button :disabled="busy || loading" @click="save">Перевірити / повторити</button></aside>
  <label>День за київським часом<input v-model="day" type="date" :max="report?.today" :disabled="busy || loading || !!pending" @change="load"></label>
  <p v-if="loading">Завантаження…</p>
  <template v-if="report">
+ <aside v-if="report.status" :class="{ discrepancy: ['STALE', 'DIFFERENCE'].includes(report.status) }" role="status"><strong>{{ statusLabels[report.status] }}</strong><p v-if="report.confirmation">{{ report.confirmation.actor }} · {{ time(report.confirmation.createdAt) }} · Фактично {{ money(report.confirmation.actual) }} грн · Різниця {{ money(report.confirmation.difference) }} грн</p></aside>
+ <small>Актуальність перевіряється кожні 30 секунд, поки форму відкрито.</small>
  <div class="metrics"><div>На початок дня<strong>{{ money(report.totals.opening) }} грн</strong></div><div>Надійшло за день<strong>+{{ money(report.totals.incoming) }} грн</strong></div><div>Вибуло за день<strong>−{{ money(report.totals.outgoing) }} грн</strong></div><div>{{ report.canSave ? 'Розрахунковий залишок зараз' : 'На кінець дня' }}<strong>{{ money(report.totals.expected) }} грн</strong></div></div>
  <ul v-if="report.totals.movements.length"><li v-for="m in report.totals.movements" :key="m.category + m.direction">{{ categories[m.category] || m.category }} · {{ m.direction === 'IN' ? 'надходження' : 'вибуття' }}: <b>{{ money(m.amount) }} грн</b></li></ul><p v-else>Руху коштів цього дня немає.</p>
- <form v-if="report.canSave && !pending" @submit.prevent="save"><fieldset :disabled="busy || loading"><div class="fields"><label>Фактично в касі, грн<input v-model="actual" type="number" required min="0" max="999999999.99" step="0.01" placeholder="Перерахуйте готівку"></label><label>Примітка<input v-model="note" :required="difference !== null && difference !== 0" maxlength="1000" placeholder="За наявності різниці — пояснення"></label></div><p v-if="difference !== null" :class="{ discrepancy: difference !== 0 }">{{ difference === 0 ? 'Суми збігаються' : difference < 0 ? 'Нестача' : 'Надлишок' }}<strong v-if="difference !== 0">: {{ money(Math.abs(difference)) }} грн</strong></p><button>Зберегти звірку</button></fieldset></form>
+ <form v-if="report.canSave && !pending" @submit.prevent="save"><fieldset :disabled="busy || loading"><div class="fields"><label>Фактично в касі, грн<input v-model="actual" type="number" required min="0" max="999999999.99" step="0.01" placeholder="Перерахуйте готівку"></label><label>Примітка<input v-model="note" :required="difference !== null && difference !== 0" maxlength="1000" placeholder="За наявності різниці — пояснення"></label></div><p v-if="difference !== null" :class="{ discrepancy: difference !== 0 }">{{ difference === 0 ? 'Суми збігаються' : difference < 0 ? 'Нестача' : 'Надлишок' }}<strong v-if="difference !== 0">: {{ money(Math.abs(difference)) }} грн</strong></p><button>{{ endOfDay ? 'Підтвердити підсумок дня' : 'Зберегти звірку' }}</button></fieldset></form>
  <p v-else-if="!report.canSave">Минулий день доступний для перегляду. Фактичний залишок фіксуємо лише за сьогодні.</p>
  </template>
  <h4>Історія звірок цієї каси</h4><template v-if="history"><p v-if="!history.rows.length">Звірок ще немає.</p><article v-for="r in history.rows" :key="r.id"><strong>{{ r.day }} · {{ r.actor }}</strong><small>Збережено: {{ time(r.createdAt) }} · №{{ r.id }}</small><p>За обліком: {{ money(r.expected) }} грн · Фактично: {{ money(r.actual) }} грн</p><p :class="{ discrepancy: Number(r.difference) !== 0 }">{{ Number(r.difference) === 0 ? 'Суми збігаються' : Number(r.difference) < 0 ? 'Нестача: ' + money(-Number(r.difference)) + ' грн' : 'Надлишок: ' + money(r.difference) + ' грн' }}</p><p>{{ r.note }}</p><details v-if="snapshot(r)"><summary>Суми на момент звірки</summary><p>На початок дня: {{ money(snapshot(r).opening) }} · Надійшло: {{ money(snapshot(r).incoming) }} · Вибуло: {{ money(snapshot(r).outgoing) }} грн</p></details></article><div><button :disabled="page === 0 || busy || loading" @click="turn(page - 1)">Назад</button> Сторінка {{ page + 1 }} <button :disabled="!history.hasMore || busy || loading" @click="turn(page + 1)">Далі</button></div></template>
