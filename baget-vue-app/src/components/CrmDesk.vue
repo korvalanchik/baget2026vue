@@ -1,4 +1,5 @@
 <script setup>
+import OrderHistory from './OrderHistory.vue'
 import CrmQrIssueDesk from './CrmQrIssueDesk.vue'
 import CrmIssuePanel from './CrmIssuePanel.vue'
 import CustomerCreditPanel from './CustomerCreditPanel.vue'
@@ -200,12 +201,13 @@ onMounted(async () => {
         <p v-if="o.commerceMode === 'RESELLER'" class="muted">Розрахунки через {{ o.partnerName || 'фірму-посередника' }} · довідковий облік оплати клієнта</p>
         <p v-if="!o.products.length" class="muted">{{ o.pickupOnly && !o.legacy ? 'Склад виробів — у формі видачі нижче.' : `Старе замовлення: ${orderStates[o.status] || 'готовність і місце видачі потрібно уточнити'}.` }}</p>
         <div v-for="p in o.products" :key="p.productId" class="product-row"><span>{{ p.productName }}</span><span>{{ productionStates[p.state] || p.state }}</span><span class="muted">{{ locations[p.location] || p.location }}<strong v-if="p.pending"> → {{ locations[p.pending] || p.pending }} (очікує передачі)</strong></span></div>
+        <OrderHistory :session="session" :order-no="o.orderNo" />
         <div class="order-actions">
          <button v-if="financeAllowed && (o.products.length || (o.pickupOnly && !o.legacy))" class="primary" :disabled="saving || issueLocked" :aria-expanded="issueOrder === o.orderNo" :aria-controls="`issue-order-${o.orderNo}`" @click="toggleIssue(o.orderNo, $event)">{{ issueOrder === o.orderNo ? 'Згорнути видачу / оплату' : 'Видача / оплата' }}</button>
          <button :disabled="saving || issueLocked" @click="linkContact('orderNo', o.orderNo)">Записати контакт</button>
         </div>
         <div v-if="issueOrder === o.orderNo" :id="`issue-order-${o.orderNo}`" class="inline-issue">
-         <CrmIssuePanel :key="`${selected.customerId}-${selected.branchNo}-${o.orderNo}`" :session="session" :customer="selected" :order-no="Number(o.orderNo)" @busy="saving = $event" @locked="issueLocked = $event" @issued="issued" @close="closeIssue" />
+         <CrmIssuePanel :show-history="false" :key="`${selected.customerId}-${selected.branchNo}-${o.orderNo}`" :session="session" :customer="selected" :order-no="Number(o.orderNo)" @busy="saving = $event" @locked="issueLocked = $event" @issued="issued" @close="closeIssue" />
         </div>
         <details v-if="pickupByOrder.has(String(o.orderNo))" class="order-pickup">
          <summary>Зв’язок щодо отримання · {{ pickupLabels[pickupByOrder.get(String(o.orderNo)).pickupStatus] || 'дії з клієнтом' }}</summary>

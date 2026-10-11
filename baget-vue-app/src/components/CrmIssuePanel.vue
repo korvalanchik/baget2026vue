@@ -1,11 +1,12 @@
 <script setup>
+import OrderHistory from './OrderHistory.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { crm } from '../services/crm.js'
 import { newRequestKey } from '../services/requestKey.js'
 import ProductQrScanner from './ProductQrScanner.vue'
 import { locations } from '../calculation/tracking.js'
 import CustomerFinancePanel from './CustomerFinancePanel.vue'
-const props = defineProps({ session: { type: Object, required: true }, customer: { type: Object, required: true }, orderNo: { type: Number, required: true }, initialProductId: { type: Number, default: null } })
+const props = defineProps({ showHistory: { type: Boolean, default: true }, session: { type: Object, required: true }, customer: { type: Object, required: true }, orderNo: { type: Number, required: true }, initialProductId: { type: Number, default: null } })
 const emit = defineEmits(['issued', 'busy', 'locked', 'close'])
 const data = ref(null), chosen = ref([]), busy = ref(false), financeBusy = ref(false), error = ref(''), note = ref(''), checked = ref(false), pending = ref(null), finance = ref(null), confirm = ref(false), notice = ref('')
 let refreshAfterPayment = false, initialApplied = false
@@ -75,6 +76,7 @@ onMounted(load)
 <template>
  <section class="issue-panel">
   <header><div><h3>Оплата та видача · замовлення № {{ orderNo }}</h3><p>{{ customer.company }} · {{ customer.branchName }}<span v-if="customer.mobile || customer.phone"> · {{ customer.mobile || customer.phone }}</span></p></div><button type="button" :disabled="blocked || !!pending" @click="emit('close')">Закрити видачу</button></header>
+  <OrderHistory v-if="showHistory" :session="session" :order-no="orderNo" />
   <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p><p v-if="busy" role="status">Перевірка / збереження…</p>
   <div v-if="pending" class="confirmation"><p>Результат попередньої видачі ще не підтверджено. Повторіть той самий запит — повторного списання чи видачі не буде.</p><p>Вироби: {{ pending.products.map(p => p.productId).join(', ') }}</p><button :disabled="blocked" @click="issue">Перевірити результат видачі</button></div>
   <button :disabled="blocked" @click="load">Оновити готовність і оплату</button>

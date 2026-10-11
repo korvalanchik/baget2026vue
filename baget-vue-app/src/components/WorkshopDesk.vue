@@ -1,4 +1,6 @@
 <script setup>
+import OrderHistoryLookup from './OrderHistoryLookup.vue'
+import OrderHistory from './OrderHistory.vue'
 import { computed, nextTick, onMounted, ref } from 'vue'
 import ProductWorkshopCard from './ProductWorkshopCard.vue'
 import { loadWorkshopOrders, loadWorkshopOrder, saveWorkshopOrder, workshopColumns, millimeters, urgency } from '../services/workshop.js'
@@ -109,9 +111,10 @@ onMounted(async () => { await refresh(); if (props.initialOrderNo) await open({ 
 <template>
   <section class="workshop-page">
     <header class="page-head"><div><div class="crumb">Виробництво <span>/</span> Дошка замовлень</div><h1>Майстерня</h1><p>Від першого виміру до готової роботи</p></div><button class="filter" :disabled="loading" @click="refresh">{{ loading ? 'Завантажуємо…' : '↻ Оновити' }}</button></header>
+    <OrderHistoryLookup :session="session" :disabled="opening || saving" @open="open($event)" />
     <div class="workshop-content">
       <div class="workshop-tools">
-        <label class="workshop-search">Пошук<input v-model="search" type="search" placeholder="№ замовлення, клієнт або телефон"></label>
+        <label class="workshop-search">Фільтр поточної дошки<input v-model="search" type="search" placeholder="№ замовлення, клієнт або телефон"></label>
         <label v-if="canChooseBranch">Філія<select v-model="branch"><option value="">Усі філії</option><option v-for="name in branches" :key="name">{{ name }}</option></select></label>
         <label>Спочатку<select v-model="sort"><option value="deadline">Найближчий термін</option><option value="oldest">Найстаріші замовлення</option></select></label>
         <label class="workshop-check"><input v-model="urgentOnly" type="checkbox"> Потребують уваги</label>
@@ -142,6 +145,7 @@ onMounted(async () => { await refresh(); if (props.initialOrderNo) await open({ 
       <form v-if="selected && draft" @submit.prevent="save">
         <header><div><p>Картка виробництва</p><h2 id="workshop-title">Замовлення № {{ selected.orderNo }}</h2></div><button type="button" class="icon-button" aria-label="Закрити" :disabled="saving" @click="close()">×</button></header>
         <div class="workshop-details"><span>Філія<strong>{{ selected.branchName || '—' }}</strong></span><span>Клієнт<strong>{{ selected.company || '—' }}</strong></span><span>Прийнято<strong>{{ formatDate(selected.saleDate) }}</strong></span><span>Термін<strong>{{ formatDate(selected.shipDate) }}</strong></span></div>
+        <OrderHistory :session="session" :order-no="selected.orderNo" />
         <ProductWorkshopCard v-if="selected.calculationRevision" :session="session" :order-no="Number(selected.orderNo)" :order-header="selected" @dirty="productionDirty = $event" @busy="saving = $event" @changed="productionChanged" />
         <template v-else>
         <fieldset :disabled="saving || !editable"><legend>Статус виробництва</legend><div class="workshop-statuses"><label v-for="status in [{ id: 1, name: 'Треба зробити' }, { id: 2, name: 'В роботі' }, { id: 3, name: 'Зроблено' }, ...(Number(selected.statusOrder) === 6 ? [{ id: 6, name: 'Пораховано' }] : [])]" :key="status.id"><input v-model="draft.statusOrder" type="radio" :value="status.id">{{ status.name }}</label></div></fieldset>

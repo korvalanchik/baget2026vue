@@ -1,4 +1,6 @@
 <script setup>
+import OrderHistoryLookup from './OrderHistoryLookup.vue'
+import OrderHistory from './OrderHistory.vue'
 import { computed, onMounted, ref } from 'vue'
 import { warehouse, locations } from '../services/warehouse.js'
 import { crm } from '../services/crm.js'
@@ -47,12 +49,14 @@ onMounted(async () => { if (props.initialOrderNo) await open(props.initialOrderN
 <template>
 <section class="branch-orders">
  <h1>Замовлення</h1>
- <form class="branch-order-search" @submit.prevent="search"><label>Номер замовлення<input v-model="query" inputmode="numeric" placeholder="Наприклад, 42664" :disabled="blocked"></label><button :disabled="blocked">Знайти</button><button type="button" :disabled="blocked" @click="scanner=!scanner">{{ scanner ? 'Закрити сканер' : 'Сканувати QR / відкрити посилання' }}</button></form>
+ <OrderHistoryLookup :session="session" :disabled="blocked" @open="open($event.orderNo)" />
+ <button type="button" :disabled="blocked" @click="scanner=!scanner">{{ scanner ? 'Закрити сканер' : 'Сканувати QR / відкрити посилання' }}</button>
  <ProductQrScanner v-if="scanner" :disabled="blocked" @scan="scan" />
  <nav aria-label="Етап замовлення"><button v-for="(name,key) in {APPROVAL:'Очікують погодження',RECEIVE:'Очікують приймання на філію',READY:'Готові до видачі'}" :key="key" :aria-pressed="tab===key" :disabled="blocked" @click="switchTab(key)">{{ name }}</button></nav>
  <p v-if="busy" role="status">Завантаження / виконання операції…</p><p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
  <section v-if="detail" class="card">
   <header><div><h2>Замовлення № {{ detail.orderNo }}</h2><p>{{ detail.company }} · {{ detail.mobile || 'Телефон не вказано' }}</p><p>{{ detail.branchName }}</p></div><button :disabled="blocked" @click="detail=null;issuing=false">Закрити картку</button></header>
+  <OrderHistory :key="detail.orderNo" :session="session" :order-no="detail.orderNo" />
   <p v-if="cancelled">Замовлення скасоване.</p>
   <p v-if="!detail.products.length">Немає виробів нового формату. Приймання та видача тут недоступні.</p>
   <article v-for="p in detail.products" :key="p.id" class="product">
@@ -62,7 +66,7 @@ onMounted(async () => { if (props.initialOrderNo) await open(props.initialOrderN
   <button v-if="detail.canReceive && detail.products.some(receivable)" class="primary" :disabled="blocked || !selected.length" @click="accept">Прийняти вибрані на філію ({{ selected.length }})</button>
   <button :disabled="blocked" @click="open(detail.orderNo)">Оновити картку</button>
   <button v-if="ready && !issuing" class="primary" :disabled="blocked" @click="issuing=true">Оплата та видача</button>
-  <CrmIssuePanel v-if="issuing" :key="detail.orderNo" :session="session" :customer="detail" :order-no="Number(detail.orderNo)" :initial-product-id="focused" @locked="locked=$event" @issued="issued" @close="issuing=false" />
+  <CrmIssuePanel :show-history="false" v-if="issuing" :key="detail.orderNo" :session="session" :customer="detail" :order-no="Number(detail.orderNo)" :initial-product-id="focused" @locked="locked=$event" @issued="issued" @close="issuing=false" />
  </section>
  <OrderApprovalsDesk v-if="tab==='APPROVAL' && !detail" :session="session" />
  <template v-if="tab!=='APPROVAL' && !detail">
