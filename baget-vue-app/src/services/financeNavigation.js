@@ -5,7 +5,7 @@ export function financeTabs(session) {
  return [
   { id: 'flow', label: 'Зведення' }, { id: 'day-end', label: 'Підсумки дня' }, { id: 'expenses', label: 'Витрати' },
   { id: 'purchases', label: 'Оплати закупівель' }, { id: 'rewards', label: 'Винагороди' },
-  ...(isAdministrator(session) ? [{ id: 'reports', label: 'Звіти' }, { id: 'differences', label: 'Розбіжності кас' }] : []),
+  ...(isAdministrator(session) ? [{ id: 'overview', label: 'Огляд керівника' }, { id: 'reports', label: 'Звіти' }, { id: 'differences', label: 'Розбіжності кас' }] : []),
  ]
 }
 export function financeTarget(target) {
