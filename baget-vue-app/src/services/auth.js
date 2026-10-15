@@ -31,6 +31,8 @@ const adminPermissions = [
   "materials:read",
   "scanning:read",
   "finance:read",
+  "samples:read",
+  "samples:manage",
 ];
 const branchOrderRoles = [
   "ROLE_MANAGER",
@@ -42,11 +44,15 @@ const branchOrderRoles = [
 const accountantRoles = ["ROLE_ACCOUNTANT", "ROLE_BOOKKEEPER", "ROLE_COUNTER"];
 
 function permissionsFor(roles) {
-  // Адміністратор працює над філіями: переглядає всі розділи, але не створює
-  // замовлення, бо ціна та наявність матеріалів визначаються прайсом філії.
+  // Administrator access takes precedence over all additional roles.
   if (roles.includes("ROLE_ADMIN")) return adminPermissions;
 
-  // Сканування не прив'язане до прайсу чи конкретної філії.
+  // A courier is deliberately restricted to the sample desk, even if another
+  // non-admin role was assigned accidentally.
+  if (roles.includes("ROLE_COURIER")) return ["samples:read", "samples:manage"];
+
+  // Інші ролі зберігають чинну модель прав. Сканування не прив'язане до прайсу
+  // чи конкретної філії.
   const permissions = ["scanning:read"];
   if (roles.some((role) => branchOrderRoles.includes(role)))
     permissions.push("orders:create", "orders:read", "customers:read", "customers:crm:read");
