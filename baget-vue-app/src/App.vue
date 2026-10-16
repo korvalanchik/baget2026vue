@@ -10,6 +10,7 @@ import BranchOrdersDesk from "./components/BranchOrdersDesk.vue";
 import AccountantDesk from "./components/AccountantDesk.vue";
 import MaterialsDesk from "./components/MaterialsDesk.vue";
 import WarehouseDesk from "./components/WarehouseDesk.vue";
+import FrameSamplesDesk from "./components/FrameSamplesDesk.vue";
 import CrmQrIssueDesk from "./components/CrmQrIssueDesk.vue";
 import { canAcceptCustomerPayment } from "./services/customerPayments.js";
 import ProductTracking from "./components/ProductTracking.vue";
@@ -67,7 +68,11 @@ onMounted(() => mobileQuery.addEventListener("change", resizeMenu));
 onBeforeUnmount(() => mobileQuery.removeEventListener("change", resizeMenu));
 
 const session = ref(restoreSession());
-const activeSection = ref(scannedProduct ? 'scanning' : 'home');
+const activeSection = ref(
+  session.value?.roles?.includes("ROLE_COURIER") && !session.value.roles.includes("ROLE_ADMIN")
+    ? "samples"
+    : scannedProduct ? "scanning" : "home",
+);
 const navigation = [
   { id: "home", icon: "⌂", label: "Мої завдання" },
   {
@@ -90,17 +95,22 @@ const navigation = [
   { id: "accountant", icon: "▧", label: "Рахунки за виробами", access: "finance:read" },
   { id: "cash", icon: "₴", label: "Каси та рахунки", access: "scanning:read" },
   { id: "finance", icon: "₴", label: "Фінанси", access: "finance:read" },
+  { id: "samples", icon: "▤", label: "Зразки багету", access: "samples:read" },
   { id: "settings", icon: "⚙", label: "Налаштування" },
 ];
 const isAdmin = computed(() => session.value?.roles?.includes("ROLE_ADMIN") === true);
-const allowedNavigation = computed(() =>
-  navigation.filter((item) => item.id === "home" ? true : ["finance", "cash"].includes(item.id) ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access)),
-);
+const allowedNavigation = computed(() => {
+  const courierOnly = session.value?.roles?.includes("ROLE_COURIER") && !isAdmin.value;
+  if (courierOnly) return navigation.filter((item) => item.id === "samples");
+  return navigation.filter((item) => item.id === "home" ? true : ["finance", "cash"].includes(item.id) ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access));
+});
 function completeLogin(newSession) {
   menuOpen.value = false;
   session.value = newSession;
   taskContext.value = null;
-  activeSection.value = scannedProduct ? "scanning" : "home";
+  activeSection.value = newSession.roles?.includes("ROLE_COURIER") && !newSession.roles.includes("ROLE_ADMIN")
+    ? "samples"
+    : scannedProduct ? "scanning" : "home";
 }
 function taskNavigate(target) {
   target = financeTarget(target);
@@ -185,19 +195,20 @@ function signOut() {
         </div>
       </header>
       <TaskHome v-if="activeSection === 'home'" :session="session" @navigate="taskNavigate" />
-      <section v-else-if="activeSection === 'new-order'">
+      <section v-else-if="activeSection === 'new-order' && canAccess(session, 'orders:create')">
         <EstimateCalculator :session="session" />
       </section>
       <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
+      <FrameSamplesDesk v-else-if="activeSection === 'samples' && canAccess(session, 'samples:read')" :session="session" />
       <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" :initial-tab="taskContext?.tab" :initial-order-no="taskContext?.orderNo" />
       <DeskLayout v-else-if="activeSection === 'cash' && canAcceptCustomerPayment(session)" title="Каси та рахунки" description="Щоденна робота з коштами філій та центральної каси."><CashDesk :session="session" @open-purchase="taskNavigate({ section: 'finance', tab: 'purchases', receiptId: $event })" /></DeskLayout>
       <FinanceDesk v-else-if="activeSection === 'finance' && canAcceptCustomerPayment(session)" :session="session" :initial-tab="taskContext?.tab" :initial-receipt-id="taskContext?.receiptId" />
-      <CustomersDesk v-else-if="activeSection === 'customers'" :session="session" :initial-customer="taskContext?.customer" />
-      <WorkshopDesk v-else-if="activeSection === 'workshop'" :session="session" :initial-order-no="taskContext?.orderNo" @open-finance="activeSection = 'customers'" />
-      <AccountantDesk v-else-if="activeSection === 'accountant'" :session="session" :initial-tab="taskContext?.tab" />
-      <MaterialsDesk v-else-if="activeSection === 'materials'" :session="session" />
-      <WarehouseDesk v-else-if="activeSection === 'warehouse'" :session="session" />
-      <section v-else-if="activeSection === 'scanning'" style="padding:16px">
+      <CustomersDesk v-else-if="activeSection === 'customers' && canAccess(session, 'customers:crm:read')" :session="session" :initial-customer="taskContext?.customer" />
+      <WorkshopDesk v-else-if="activeSection === 'workshop' && canAccess(session, 'workshop:read')" :session="session" :initial-order-no="taskContext?.orderNo" @open-finance="activeSection = 'customers'" />
+      <AccountantDesk v-else-if="activeSection === 'accountant' && canAccess(session, 'finance:read')" :session="session" :initial-tab="taskContext?.tab" />
+      <MaterialsDesk v-else-if="activeSection === 'materials' && canAccess(session, 'materials:read')" :session="session" />
+      <WarehouseDesk v-else-if="activeSection === 'warehouse' && canAccess(session, 'materials:read')" :session="session" />
+      <section v-else-if="activeSection === 'scanning' && canAccess(session, 'scanning:read')" style="padding:16px">
         <button v-if="canAcceptCustomerPayment(session)" type="button" :disabled="scanBusy" style="min-height:44px;margin-bottom:12px" @click="scanTracking = !scanTracking">{{ scanTracking ? 'До видачі клієнту' : 'Переміщення та історія виробу' }}</button>
         <CrmQrIssueDesk v-if="canAcceptCustomerPayment(session) && !scanTracking" :session="session" :initial-token="scannedProduct" @busy="scanBusy = $event" />
         <template v-else><h1>Сканування виробу</h1><ProductTracking :session="session" :initial-token="scannedProduct" /></template>
