@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/material-catalog-create
+      - feature/work-price-editor
   pull_request:
     branches:
       - main
@@ -30,6 +31,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run ESLint on changed files
-        run: npx eslint src/components/MaterialsDesk.vue
+        run: npx eslint src/components/MaterialsDesk.vue src/components/SettingsDesk.vue src/components/WorkPricesDesk.vue src/services/workPrices.js
       - name: Build for production
         run: npm run build
