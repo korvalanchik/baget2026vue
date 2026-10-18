@@ -241,7 +241,7 @@ export function buildEstimate(artworks) {
       if (a.mountingType === "PLANE" && underframe)
         throw new Error("Для натяжки на площину виберіть «Без підрамника».");
       const canvas =
-        a.artworkType !== "EMBROIDERY" && a.artworkType !== "NONE" && a.canvasSource === "STOCK" ? 27970 : null;
+        a.artworkType !== "EMBROIDERY" && a.artworkType !== "NONE" && a.canvasSource === "STOCK" ? 27980 : null;
       if(a.artworkType === 'EMBROIDERY' && a.mountingType === 'PLANE' && !a.backings.length)
         throw new Error('Для натяжки вишивки на задник виберіть ДВП або ПВХ у групі «Задник».');
       if(a.withFrame && underframe && a.includeUnderframeFasteners) {
