@@ -1,6 +1,6 @@
 <script setup>
 import { newRequestKey } from '../services/requestKey.js'
-import { nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import ReceiptCostDesk from './ReceiptCostDesk.vue'
 import { warehouse } from '../services/warehouse.js'
 import ProcurementDesk from './ProcurementDesk.vue'
@@ -20,7 +20,25 @@ async function openDocument(doc) {
 const props = defineProps({ session: { type: Object, required: true } })
 const rows = ref([]), selected = ref(null), q = ref(''), page = ref(0), shortage = ref(false), busy = ref(false), error = ref(''), message = ref('')
 const action = ref('RECEIPT'), quantity = ref(''), note = ref('')
+const createOpen = ref(false), suppliers = ref([])
+const emptyMaterial = () => ({
+  description: '', vendorNo: '', calculationMethod: 'QUANTITY',
+  profileWidthMm: '', marginWidthMm: '', marginHeightMm: '',
+  allowanceMm: '', railWidthMm: '',
+  cost: '', listPrice: '', listPrice1: '', listPrice3: '',
+})
+const newMaterial = ref(emptyMaterial())
+const materialMethods = [
+  { value: 'FRAME_PROFILE', label: 'Багетний профіль (периметр + ширина профілю)' },
+  { value: 'PERIMETER', label: 'Периметр' },
+  { value: 'WIDTH_PLUS_ALLOWANCE', label: 'Ширина + припуск' },
+  { value: 'AREA', label: 'Площа' },
+  { value: 'AREA_WITH_MARGIN', label: 'Площа з припусками' },
+  { value: 'QUANTITY', label: 'Кількість на виріб' },
+]
+const unitForMethod = { FRAME_PROFILE: 'METER', PERIMETER: 'METER', WIDTH_PLUS_ALLOWANCE: 'METER', AREA: 'SQUARE_METER', AREA_WITH_MARGIN: 'SQUARE_METER', QUANTITY: 'PIECE' }
 const units = { METER: 'м', SQUARE_METER: 'м²', PIECE: 'шт' }
+const createUnit = computed(() => unitForMethod[newMaterial.value.calculationMethod] || 'PIECE')
 const states = { OPEN: 'Заявлено', ORDERED: 'Замовлено постачальнику', CLOSED: 'Заявку виконано', CANCELLED: 'Скасовано' }
 let retry = null
 async function run(fn) { if (busy.value) return; busy.value = true; error.value = ''; message.value = ''; try { await fn() } catch (e) { error.value = e.message } finally { busy.value = false } }
@@ -43,10 +61,124 @@ function submit() { return run(async () => {
   await list()
 }) }
 function state(r, status) { return run(async () => { selected.value = await warehouse(props.session.token, `/materials/${selected.value.partNo}/requests/${r.id}`, { expectedRevision: r.revision, status }) }) }
+function openCreate() {
+  if (busy.value) return
+  newMaterial.value = emptyMaterial()
+  createOpen.value = true
+  error.value = ''
+  message.value = ''
+  return run(async () => {
+    suppliers.value = await warehouse(props.session.token, '/procurement/vendors')
+  })
+}
+function createNumber(value, label) {
+  const text = String(value ?? '').trim()
+  const number = Number(text)
+  if (!text || !Number.isFinite(number) || number < 0) throw new Error(`Вкажіть коректну ціну: ${label}.`)
+  return number
+}
+function optionalNumber(value) {
+  const text = String(value ?? '').trim()
+  if (!text) return null
+  const number = Number(text)
+  if (!Number.isFinite(number) || number < 0) throw new Error('Перевірте додаткові параметри розрахунку.')
+  return number
+}
+function createMaterial() {
+  return run(async () => {
+    const form = newMaterial.value
+    const description = form.description.trim()
+    if (!description) throw new Error('Вкажіть артикул або назву матеріалу.')
+    if (description.length > 30) throw new Error('Артикул / назва має бути не довше 30 символів.')
+    const payload = {
+      description,
+      vendorNo: form.vendorNo ? Number(form.vendorNo) : null,
+      calculationMethod: form.calculationMethod,
+      unit: createUnit.value,
+      profileWidthMm: form.calculationMethod === 'FRAME_PROFILE' ? optionalNumber(form.profileWidthMm) : null,
+      marginWidthMm: form.calculationMethod === 'AREA_WITH_MARGIN' ? optionalNumber(form.marginWidthMm) : null,
+      marginHeightMm: form.calculationMethod === 'AREA_WITH_MARGIN' ? optionalNumber(form.marginHeightMm) : null,
+      allowanceMm: form.calculationMethod === 'WIDTH_PLUS_ALLOWANCE' ? optionalNumber(form.allowanceMm) : null,
+      railWidthMm: form.calculationMethod === 'PERIMETER' ? optionalNumber(form.railWidthMm) : null,
+      cost: createNumber(form.cost, 'Cost'),
+      listPrice: createNumber(form.listPrice, 'ListPrice'),
+      listPrice1: createNumber(form.listPrice1, 'ListPrice_1'),
+      listPrice3: createNumber(form.listPrice3, 'ListPrice_3'),
+    }
+    if (payload.profileWidthMm != null && payload.profileWidthMm <= 0.3) throw new Error('Ширина профілю має бути понад 0,3 мм.')
+    if (payload.calculationMethod === 'AREA_WITH_MARGIN' && (payload.marginWidthMm == null || payload.marginHeightMm == null)) throw new Error('Вкажіть обидва сумарні припуски для розрахунку площі.')
+    if (payload.calculationMethod === 'WIDTH_PLUS_ALLOWANCE' && payload.allowanceMm == null) throw new Error('Вкажіть припуск у міліметрах.')
+    const created = await warehouse(props.session.token, '/materials', payload)
+    createOpen.value = false
+    tab.value = 'stock'
+    q.value = created.description
+    page.value = 0
+    shortage.value = false
+    selected.value = null
+    await list()
+    selected.value = await warehouse(props.session.token, `/materials/${created.partNo}`)
+    message.value = `Артикул «${created.description}» створено. Внутрішній номер: ${created.partNo}. Початковий залишок — 0; фактичну кількість зафіксуйте інвентаризацією або приходом.`
+  })
+}
 onMounted(() => refresh())
 </script>
 <template>
-  <nav class="material-tabs"><button :disabled="receiptBusy" :class="{ active: tab === 'receipts' }" @click="tab = 'receipts'">Прихід і собівартість</button><button :class="{ active: tab === 'inventory' }" @click="tab = 'inventory'">Акти інвентаризації</button><button :class="{ active: tab === 'samples' }" @click="tab = 'samples'">Зразки багету по філіях</button><button :class="{ active: tab === 'procurement' }" @click="tab = 'procurement'">Потреби та постачання</button><button :class="{ active: tab === 'stock' }" @click="tab = 'stock'; refresh()">Залишки та інвентаризація</button></nav>
+  <nav class="material-tabs"><button :disabled="receiptBusy" :class="{ active: tab === 'receipts' }" @click="tab = 'receipts'">Прихід і собівартість</button><button :class="{ active: tab === 'inventory' }" @click="tab = 'inventory'">Акти інвентаризації</button><button :class="{ active: tab === 'samples' }" @click="tab = 'samples'">Зразки багету по філіях</button><button :class="{ active: tab === 'procurement' }" @click="tab = 'procurement'">Потреби та постачання</button><button :class="{ active: tab === 'stock' }" @click="tab = 'stock'; refresh()">Залишки та інвентаризація</button><button class="create-material-button" :disabled="busy" @click="openCreate">＋ Новий артикул</button></nav>
+  <article v-if="createOpen" class="material-creator">
+    <form @submit.prevent="createMaterial">
+      <h2>Новий артикул матеріалу</h2>
+      <p>Внутрішній номер призначить система. Новий матеріал буде створено з нульовим залишком, одиницею складу та налаштованим методом розрахунку.</p>
+      <p v-if="error" role="alert">{{ error }}</p>
+      <fieldset :disabled="busy">
+        <div class="material-create-grid">
+          <label>Артикул / назва (до 30 символів)
+            <input v-model="newMaterial.description" maxlength="30" required autocomplete="off" placeholder="Наприклад, 30010 або Клей для дзеркал">
+          </label>
+          <label>Постачальник за замовчуванням
+            <select v-model="newMaterial.vendorNo"><option value="">Не задано</option><option v-for="v in suppliers" :key="v.id" :value="String(v.id)">{{ v.name }}</option></select>
+          </label>
+          <label>Метод розрахунку
+            <select v-model="newMaterial.calculationMethod">
+              <option v-for="method in materialMethods" :key="method.value" :value="method.value">{{ method.label }}</option>
+            </select>
+          </label>
+          <label>Одиниця складу та витрати
+            <input :value="units[createUnit]" readonly>
+          </label>
+          <label v-if="newMaterial.calculationMethod === 'FRAME_PROFILE'">Ширина багетного профілю, мм
+            <input v-model="newMaterial.profileWidthMm" type="number" min="0.301" max="500" step="0.001" required>
+          </label>
+          <template v-if="newMaterial.calculationMethod === 'AREA_WITH_MARGIN'">
+            <label>Сумарний припуск по ширині, мм<input v-model="newMaterial.marginWidthMm" type="number" min="0" max="1000" step="0.001" required></label>
+            <label>Сумарний припуск по висоті, мм<input v-model="newMaterial.marginHeightMm" type="number" min="0" max="1000" step="0.001" required></label>
+          </template>
+          <label v-if="newMaterial.calculationMethod === 'WIDTH_PLUS_ALLOWANCE'">Припуск до ширини, мм
+            <input v-model="newMaterial.allowanceMm" type="number" min="0" max="1000" step="0.001" required>
+          </label>
+          <label v-if="newMaterial.calculationMethod === 'PERIMETER'">Ширина рейки, мм (необов’язково)
+            <input v-model="newMaterial.railWidthMm" type="number" min="0.001" max="1000" step="0.001">
+          </label>
+        </div>
+        <h3>Ціни для калькулятора за одиницю ({{ units[createUnit] }})</h3>
+        <p class="material-creator-hint">Це цінові рівні розрахунку, а не складська закупівельна собівартість. Порожні значення не дозволені; якщо для рівня матеріал справді безкоштовний, введіть 0. Складська собівартість окремо визначається у вкладці «Прихід і собівартість».</p>
+        <div class="material-create-grid">
+          <label>Cost · адміністратор
+            <input v-model="newMaterial.cost" type="number" min="0" max="999999999" step="0.000001" required>
+          </label>
+          <label>ListPrice · менеджер Level 2
+            <input v-model="newMaterial.listPrice" type="number" min="0" max="999999999" step="0.000001" required>
+          </label>
+          <label>ListPrice_1 · облік і замовлення
+            <input v-model="newMaterial.listPrice1" type="number" min="0" max="999999999" step="0.000001" required>
+          </label>
+          <label>ListPrice_3 · стандартний рівень
+            <input v-model="newMaterial.listPrice3" type="number" min="0" max="999999999" step="0.000001" required>
+          </label>
+        </div>
+      </fieldset>
+      <div class="tools"><button type="submit" :disabled="busy">Створити матеріал</button><button type="button" :disabled="busy" @click="createOpen = false">Скасувати</button></div>
+    </form>
+  </article>
   <ReceiptCostDesk ref="receiptDesk" v-show="tab === 'receipts'" :session="session" @busy="receiptBusy=$event" />
   <StocktakeDesk ref="stocktakeDesk" v-show="tab === 'inventory'" :session="session" />
   <FrameSamplesDesk v-if="tab === 'samples'" :session="session" />
@@ -76,5 +208,6 @@ onMounted(() => refresh())
 </template>
 <style scoped>
 .material-tabs{display:flex;gap:12px;padding:20px 24px;flex-wrap:wrap}.material-tabs .active{background:#e5f1fb;border-color:#6599ba}
+.create-material-button{background:#185c63;color:#fff;border-color:#185c63}.material-creator{margin:0 24px 20px;padding:20px;border:1px solid #a9c8cd;border-radius:10px;background:#f7fbfc}.material-creator h2{margin-top:0}.material-creator fieldset{border:0;padding:0;min-width:0}.material-create-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:12px}.material-creator label{display:grid;gap:6px;align-content:start}.material-creator input,.material-creator select{width:100%;box-sizing:border-box}.material-creator-hint{color:#526875;font-size:13px}
 .materials{padding:24px}.tools{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0}label{display:grid;gap:6px}input,select,textarea,button{font:inherit;padding:9px;border:1px solid #ccd5dd;border-radius:6px}button{cursor:pointer}button:disabled{opacity:.5}table{border-collapse:collapse;width:100%}.table{overflow:auto}th,td{text-align:left;padding:10px;border-bottom:1px solid #ddd}article{margin-top:24px;padding:20px;border:1px solid #ddd;border-radius:10px}textarea{max-width:650px;margin-bottom:12px}details{margin:15px 0}[role=alert]{color:#a22}[role=status]{color:#276039}.request{border-bottom:1px solid #ddd;padding:10px 0}.request button{margin-right:8px}
 </style>
