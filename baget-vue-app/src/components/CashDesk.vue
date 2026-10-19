@@ -33,7 +33,7 @@ async function execute(path, payload) {
  if (busy.value || pending.value) return
  try { const saved = JSON.parse(sessionStorage.getItem(storageKey.value) || 'null'); if (saved) { pending.value = saved; error.value = 'Спочатку перевірте результат попереднього касового запиту.'; return } } catch { error.value = 'Не вдалося перевірити незавершений касовий запит.'; return }
  try { pending.value = { path, body: { ...payload, requestKey: newRequestKey() } }; sessionStorage.setItem(storageKey.value, JSON.stringify(pending.value)) }
- catch (e) { pending.value = null; error.value = 'Не вдалося зберегти ключ операції. Дозвольте зберігання даних у браузері.'; return }
+ catch { pending.value = null; error.value = 'Не вдалося зберегти ключ операції. Дозвольте зберігання даних у браузері.'; return }
  await retry()
 }
 async function retry() {
@@ -52,7 +52,7 @@ async function retry() {
 }
 function startReceive(t) { receive.value = { transferId: t.id, amount: '', note: '', expected: t.amount, source: t.sourceName } }
 onActivated(() => { try { pending.value = JSON.parse(sessionStorage.getItem(storageKey.value) || 'null') } catch { error.value = 'Не вдалося прочитати незавершений касовий запит.' } })
-onMounted(async () => { try { pending.value = JSON.parse(sessionStorage.getItem(storageKey.value) || 'null') } catch {} await load() })
+onMounted(async () => { try { pending.value = JSON.parse(sessionStorage.getItem(storageKey.value) || 'null') } catch { /* Continue with a fresh load if saved state is unreadable. */ } await load() })
 </script>
 <template>
 <section class="cash-desk">
