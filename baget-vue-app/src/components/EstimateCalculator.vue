@@ -99,10 +99,10 @@ watch(
   },
 );
 function customerSearchMinimum(query) {
-  return /[\\p{L}]/u.test(query) ? 3 : 4;
+  return /[\p{L}]/u.test(query) ? 3 : 4;
 }
 function customerSearchCharacterCount(query) {
-  return Array.from(query.matchAll(/[\\p{L}\\p{N}]/gu)).length;
+  return Array.from(query.matchAll(/[\p{L}\p{N}]/gu)).length;
 }
 watch(
   customerSearchQuery,
@@ -117,7 +117,7 @@ watch(
     const significantCharacters = customerSearchCharacterCount(query);
     const minLength = customerSearchMinimum(query);
     if (significantCharacters < minLength) {
-      customerSearchMessage.value = /[\\p{L}]/u.test(query)
+      customerSearchMessage.value = /[\p{L}]/u.test(query)
         ? "Введіть щонайменше 3 літери або цифри для пошуку."
         : "Для пошуку за телефоном введіть щонайменше 4 цифри.";
       return;
@@ -1101,4 +1101,18 @@ onBeforeUnmount(() => {
  .submit-actions .primary { grid-column: 1 / -1; }
  .estimate-result-line { flex-wrap: wrap; }
 }
+
+.customer-lookup{margin:14px 0 18px;padding:13px;background:#f8fbf9;border:1px solid #dfe9e2;border-radius:9px}
+.customer-search-label{display:flex;flex-direction:column;gap:5px;font-size:13px;line-height:1.4;font-weight:600}
+.customer-search-hint{margin:6px 0 0;color:#708078;font-size:12px;line-height:1.45}
+.customer-lookup-results{display:grid;gap:0;margin-top:10px;max-height:250px;overflow-y:auto;border:1px solid #dce5de;border-radius:8px;background:#fff}
+.customer-lookup-results button{display:grid;gap:4px;text-align:left;border:0;border-bottom:1px solid #edf1ee;border-radius:0;background:#fff;padding:10px 12px;min-height:0}
+.customer-lookup-results button:last-child{border-bottom:0}
+.customer-lookup-results button:hover{background:#edf5ef}
+.customer-lookup-results strong{font-size:13px;overflow-wrap:anywhere}
+.customer-lookup-results span{font-size:12px;color:#64766c;line-height:1.4;overflow-wrap:anywhere}
+.customer-lookup .estimate-muted{margin-bottom:0}
+.deadline-approval-warning{border-color:#e7c489;background:#fff7e8;color:#714b14}
+.deadline-approval-warning button{background:#254d3a;color:#fff;border-color:#254d3a}
+
 </style>
