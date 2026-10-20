@@ -586,7 +586,7 @@ onBeforeUnmount(() => {
               <ul><li v-for="m in shortages" :key="`${m.productId}-${m.partNo}`">{{ m.productName }} · {{ m.description }}: не вистачає {{ amount(m.shortage) }} {{ units[m.unit] || m.unit }}</li></ul>
               <p v-if="savedDirty">Склад або дані змінено. Дефіцит показано за останнім збереженим резервом; збережіть зміни для повторної перевірки.</p>
             </template>
-            <p v-if="timing.warning" role="alert">Обрана дата раніша за {{ shortages.length ? leadConfig.shortageDays : leadConfig.minDays }} робочих днів. Можлива затримка виконання.</p>
+            <p v-if="timing.warning && !deadlineApprovalRequired" role="alert">Обрана дата раніша за {{ shortages.length ? leadConfig.shortageDays : leadConfig.minDays }} робочих днів. Можлива затримка виконання.</p>
             <button v-if="timing.warning || (!details.dueDate && shortages.length)" type="button" @click="applySuggestedDate">Встановити {{ shortDate(timing.target) }}</button>
             <p v-if="savedOrder && savedDirty">Щоб зафіксувати нову дату, збережіть зміни замовлення.</p>
           </aside>
