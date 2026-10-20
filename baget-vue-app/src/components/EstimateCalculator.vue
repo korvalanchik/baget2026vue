@@ -572,7 +572,10 @@ onBeforeUnmount(() => {
               </p>
               <p v-else>Погоджено з майстернею. Хто й коли погодив, буде записано після збереження замовлення.</p>
             </template>
-            <button v-else type="button" :disabled="orderBusy" @click="deadlineApprovalAgreed = true">Погоджено</button>
+            <template v-else>
+              <p v-if="savedOrder?.deadlineApprovalStatus === 'PENDING'">Статус погодження: очікує підтвердження.</p>
+              <button type="button" :disabled="orderBusy" @click="deadlineApprovalAgreed = true">Погоджено</button>
+            </template>
           </aside>
           <aside v-if="leadConfig" class="deadline-info" :class="{ 'deadline-warning': timing.warning || shortages.length }" aria-live="polite">
             <strong>Строк виконання: {{ leadConfig.minDays }}–{{ leadConfig.normalDays }} робочих днів</strong>
