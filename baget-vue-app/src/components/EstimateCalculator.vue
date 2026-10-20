@@ -52,6 +52,8 @@ const details = reactive({
   dueDate: "",
 });
 const customerMatches = ref([]);
+const customerSearchQuery = ref("");
+const customerSearchMessage = ref("");
 const searchingCustomers = ref(false);
 const orderBusy = ref(false);
 const savedOrder = ref(null);
@@ -82,6 +84,14 @@ watch(
     customerMatches.value = [];
   },
 );
+watch(
+  customerSearchQuery,
+  () => {
+    customerSearchGeneration++;
+    customerMatches.value = [];
+    customerSearchMessage.value = "";
+  },
+);
 function changedDraft() {
   if (restoring) return;
   requestKey = newRequestKey();
@@ -97,27 +107,39 @@ watch(artworks, () => {
 watch(artworks, changedDraft, { deep: true, flush: "sync" });
 watch(details, changedDraft, { deep: true, flush: "sync" });
 async function findCustomers() {
-  const query = details.phone.trim();
-  if (query.length < 5) return;
+  const query = customerSearchQuery.value.trim();
+  if (query.length < 2) {
+    customerSearchMessage.value = "Введіть щонайменше 2 символи для пошуку.";
+    return;
+  }
   const generation = ++customerSearchGeneration;
   searchingCustomers.value = true;
+  customerSearchMessage.value = "";
   try {
     const found = await searchCustomers(props.session.token, query);
-    if (generation === customerSearchGeneration) customerMatches.value = found;
+    if (generation === customerSearchGeneration) {
+      customerMatches.value = found;
+      customerSearchMessage.value = found.length ? "" : "Клієнтів не знайдено.";
+    }
   } catch (e) {
-    error.value = e.message;
+    if (generation === customerSearchGeneration) {
+      customerMatches.value = [];
+      customerSearchMessage.value = e.message;
+    }
   } finally {
-    searchingCustomers.value = false;
+    if (generation === customerSearchGeneration) searchingCustomers.value = false;
   }
 }
 function chooseCustomer(c) {
   Object.assign(details, {
     custNo: c.custNo,
-    company: c.company || "",
-    phone: c.mobile || "",
+    company: c.company || c.contact || "",
+    phone: c.mobile || c.phone || "",
     address: c.addr1 || "",
   });
   customerMatches.value = [];
+  customerSearchQuery.value = "";
+  customerSearchMessage.value = "";
 }
 function acceptSaved(order, restore = false) {
   const forms = restore ? restoreOrderDraft(order) : null;
@@ -386,6 +408,11 @@ function reset() {
     notice: "",
     dueDate: "",
   });
+  customerSearchGeneration++;
+  searchingCustomers.value = false;
+  customerMatches.value = [];
+  customerSearchQuery.value = "";
+  customerSearchMessage.value = "";
   requestKey = newRequestKey();
   openNumber.value = "";
   orderMessage.value = "";
@@ -446,6 +473,15 @@ onBeforeUnmount(() => {
             Філія: {{ savedOrder?.branchName || props.session.branch.name }}
           </p>
           <div class="estimate-grid customer-grid">
+            <label class="customer-search-input"
+              >Пошук клієнта за телефоном, ім’ям або назвою компанії<input
+                v-model="customerSearchQuery"
+                type="search"
+                autocomplete="off"
+                placeholder="Введіть телефон, ім’я чи назву компанії"
+                :disabled="Boolean(savedOrder)"
+                @keydown.enter.prevent="findCustomers"
+            /></label>
             <label
               >Телефон<input
                 v-model="details.phone"
@@ -486,10 +522,10 @@ onBeforeUnmount(() => {
           <div v-if="!savedOrder" class="estimate-actions">
             <button
               type="button"
-              :disabled="searchingCustomers || details.phone.trim().length < 5"
+              :disabled="searchingCustomers || customerSearchQuery.trim().length < 2"
               @click="findCustomers"
             >
-              Знайти клієнта
+              {{ searchingCustomers ? "Шукаємо…" : "Знайти клієнта" }}
             </button>
             <button
               v-if="details.custNo"
@@ -507,9 +543,10 @@ onBeforeUnmount(() => {
               type="button"
               @click="chooseCustomer(c)"
             >
-              {{ c.company }} · {{ c.mobile }}
+              {{ c.company || c.contact || ("Клієнт №" + c.custNo) }} · {{ c.contact && c.contact !== c.company ? c.contact + " · " : "" }}{{ c.mobile || c.phone || "без телефону" }}{{ c.addr1 ? " · " + c.addr1 : "" }}
             </button>
           </div>
+          <p v-if="customerSearchMessage" class="estimate-muted" role="status">{{ customerSearchMessage }}</p>
           <p v-if="!details.custNo" class="estimate-muted">
             Якщо не обрати знайденого клієнта, під час збереження буде створено
             нового.

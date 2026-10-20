@@ -30,6 +30,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run ESLint on changed files
-        run: npx eslint src/App.vue src/components/FrameSamplesDesk.vue src/components/UserAdministration.vue src/services/auth.js
+        run: npx eslint src/App.vue src/components/FrameSamplesDesk.vue src/components/UserAdministration.vue src/components/EstimateCalculator.vue src/services/auth.js
       - name: Build for production
         run: npm run build
