@@ -91,9 +91,10 @@ watch(
   },
 );
 function customerSearchMinimum(query) {
-  const significantCharacters = Array.from(query.matchAll(/[\\p{L}\\p{N}]/gu)).length;
-  const hasLetters = /\\p{L}/u.test(query);
-  return hasLetters ? 3 : 4;
+  return /[\\p{L}]/u.test(query) ? 3 : 4;
+}
+function customerSearchCharacterCount(query) {
+  return Array.from(query.matchAll(/[\\p{L}\\p{N}]/gu)).length;
 }
 watch(
   customerSearchQuery,
@@ -105,10 +106,10 @@ watch(
     customerSearchMessage.value = "";
     searchingCustomers.value = false;
     if (!query) return;
-    const significantCharacters = Array.from(query.matchAll(/[\\p{L}\\p{N}]/gu)).length;
+    const significantCharacters = customerSearchCharacterCount(query);
     const minLength = customerSearchMinimum(query);
     if (significantCharacters < minLength) {
-      customerSearchMessage.value = /\\p{L}/u.test(query)
+      customerSearchMessage.value = /[\\p{L}]/u.test(query)
         ? "Введіть щонайменше 3 літери або цифри для пошуку."
         : "Для пошуку за телефоном введіть щонайменше 4 цифри.";
       return;
@@ -122,6 +123,9 @@ watch(
     if (!restoring && next !== previous) deadlineApprovalAgreed.value = false;
   },
 );
+watch(deadlineApprovalAgreed, () => {
+  if (!restoring) changedDraft();
+});
 function changedDraft() {
   if (restoring) return;
   requestKey = newRequestKey();
@@ -137,7 +141,7 @@ watch(artworks, () => {
 watch(artworks, changedDraft, { deep: true, flush: "sync" });
 watch(details, changedDraft, { deep: true, flush: "sync" });
 async function findCustomers(query = customerSearchQuery.value.trim(), generation = customerSearchGeneration) {
-  const significantCharacters = Array.from(query.matchAll(/[\\p{L}\\p{N}]/gu)).length;
+  const significantCharacters = customerSearchCharacterCount(query);
   if (significantCharacters < customerSearchMinimum(query)) return;
   searchingCustomers.value = true;
   customerSearchMessage.value = "";
