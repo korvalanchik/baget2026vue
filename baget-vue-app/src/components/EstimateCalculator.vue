@@ -91,13 +91,6 @@ const orderMessage = ref("");
 let requestKey = newRequestKey();
 let restoring = false;
 let customerSearchGeneration = 0;
-watch(
-  () => details.phone,
-  () => {
-    customerSearchGeneration++;
-    customerMatches.value = [];
-  },
-);
 function customerSearchMinimum(query) {
   return /[\p{L}]/u.test(query) ? 3 : 4;
 }
