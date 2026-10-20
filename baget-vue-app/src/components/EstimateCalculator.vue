@@ -1,6 +1,6 @@
 <script setup>
 import { leadTimeSettings } from '../services/leadTimeSettings.js'
-import { kyivToday, leadTime, shortageMaterials } from '../calculation/leadTime.js' 
+import { addWorkingDays, kyivToday, leadTime, shortageMaterials } from '../calculation/leadTime.js' 
 import PriceApprovalPanel from './PriceApprovalPanel.vue'
 import CustomerFinancePanel from './CustomerFinancePanel.vue'
 import { canAcceptCustomerPayment } from '../services/customerPayments.js'
@@ -55,6 +55,12 @@ const customerMatches = ref([]);
 const customerSearchQuery = ref("");
 const customerSearchMessage = ref("");
 const searchingCustomers = ref(false);
+const deadlineApprovalAgreed = ref(false);
+const approvalCutoffDate = computed(() => addWorkingDays(deadlineStart.value, 5));
+const deadlineApprovalRequired = computed(() =>
+  Boolean(details.dueDate && approvalCutoffDate.value && details.dueDate < approvalCutoffDate.value),
+);
+let customerSearchTimer;
 const orderBusy = ref(false);
 const savedOrder = ref(null);
 const savedDirty = ref(false);
@@ -68,6 +74,14 @@ async function loadLeadSettings() {
 }
 const timing = computed(() => leadConfig.value ? leadTime(details.dueDate, deadlineStart.value, shortages.value.length > 0, leadConfig.value) : {});
 const shortDate = value => value ? value.split('-').reverse().join('.') : '';
+function formatApprovalTime(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("uk-UA", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "Europe/Kyiv",
+  }).format(new Date(value));
+}
 function applySuggestedDate() {
   if (!leadConfig.value || orderBusy.value || (savedOrder.value && savedOrder.value.statusOrder !== 1)) return;
   details.dueDate = timing.value.target;
@@ -77,21 +91,42 @@ const orderMessage = ref("");
 let requestKey = newRequestKey();
 let restoring = false;
 let customerSearchGeneration = 0;
-watch(
-  () => details.phone,
-  () => {
-    customerSearchGeneration++;
-    customerMatches.value = [];
-  },
-);
+function customerSearchMinimum(query) {
+  return /[\p{L}]/u.test(query) ? 3 : 4;
+}
+function customerSearchCharacterCount(query) {
+  return Array.from(query.matchAll(/[\p{L}\p{N}]/gu)).length;
+}
 watch(
   customerSearchQuery,
-  () => {
-    customerSearchGeneration++;
+  (value) => {
+    clearTimeout(customerSearchTimer);
+    const generation = ++customerSearchGeneration;
+    const query = value.trim();
     customerMatches.value = [];
     customerSearchMessage.value = "";
+    searchingCustomers.value = false;
+    if (!query) return;
+    const significantCharacters = customerSearchCharacterCount(query);
+    const minLength = customerSearchMinimum(query);
+    if (significantCharacters < minLength) {
+      customerSearchMessage.value = /[\p{L}]/u.test(query)
+        ? "Введіть щонайменше 3 літери або цифри для пошуку."
+        : "Для пошуку за телефоном введіть щонайменше 4 цифри.";
+      return;
+    }
+    customerSearchTimer = setTimeout(() => findCustomers(query, generation), 450);
   },
 );
+watch(
+  () => details.dueDate,
+  (next, previous) => {
+    if (!restoring && next !== previous) deadlineApprovalAgreed.value = false;
+  },
+);
+watch(deadlineApprovalAgreed, () => {
+  if (!restoring) changedDraft();
+});
 function changedDraft() {
   if (restoring) return;
   requestKey = newRequestKey();
@@ -106,13 +141,9 @@ watch(artworks, () => {
 }, { deep: true, flush: "sync" });
 watch(artworks, changedDraft, { deep: true, flush: "sync" });
 watch(details, changedDraft, { deep: true, flush: "sync" });
-async function findCustomers() {
-  const query = customerSearchQuery.value.trim();
-  if (query.length < 2) {
-    customerSearchMessage.value = "Введіть щонайменше 2 символи для пошуку.";
-    return;
-  }
-  const generation = ++customerSearchGeneration;
+async function findCustomers(query = customerSearchQuery.value.trim(), generation = customerSearchGeneration) {
+  const significantCharacters = customerSearchCharacterCount(query);
+  if (significantCharacters < customerSearchMinimum(query)) return;
   searchingCustomers.value = true;
   customerSearchMessage.value = "";
   try {
@@ -129,6 +160,17 @@ async function findCustomers() {
   } finally {
     if (generation === customerSearchGeneration) searchingCustomers.value = false;
   }
+}
+function searchCustomersImmediately() {
+  clearTimeout(customerSearchTimer);
+  void findCustomers(customerSearchQuery.value.trim(), customerSearchGeneration);
+}
+function clearSelectedCustomer() {
+  details.custNo = "";
+  details.company = "";
+  details.phone = "";
+  details.address = "";
+  customerMatches.value = [];
 }
 function chooseCustomer(c) {
   Object.assign(details, {
@@ -166,6 +208,7 @@ function acceptSaved(order, restore = false) {
     });
   }
   savedOrder.value = order;
+  deadlineApprovalAgreed.value = order.deadlineApprovalStatus === "APPROVED";
   savedDirty.value = false;
   openNumber.value = String(order.orderNo);
   restoring = false;
@@ -183,6 +226,7 @@ async function saveOrder() {
       requestKey,
       savedOrder.value?.revision || 0,
     );
+    payload.deadlineApprovedWithWorkshop = deadlineApprovalAgreed.value;
   } catch (e) {
     error.value = e.message;
     return;
@@ -409,10 +453,12 @@ function reset() {
     dueDate: "",
   });
   customerSearchGeneration++;
+  clearTimeout(customerSearchTimer);
   searchingCustomers.value = false;
   customerMatches.value = [];
   customerSearchQuery.value = "";
   customerSearchMessage.value = "";
+  deadlineApprovalAgreed.value = false;
   requestKey = newRequestKey();
   openNumber.value = "";
   orderMessage.value = "";
@@ -423,6 +469,7 @@ onMounted(loadLeadSettings);
 onBeforeUnmount(() => {
   revision++;
   controller?.abort();
+  clearTimeout(customerSearchTimer);
 });
 </script>
 
@@ -472,16 +519,26 @@ onBeforeUnmount(() => {
           <p>
             Філія: {{ savedOrder?.branchName || props.session.branch.name }}
           </p>
-          <div class="estimate-grid customer-grid">
-            <label class="customer-search-input"
+          <div v-if="!savedOrder" class="customer-lookup">
+            <label class="customer-search-label"
               >Пошук клієнта за телефоном, ім’ям або назвою компанії<input
                 v-model="customerSearchQuery"
                 type="search"
                 autocomplete="off"
                 placeholder="Введіть телефон, ім’я чи назву компанії"
-                :disabled="Boolean(savedOrder)"
-                @keydown.enter.prevent="findCustomers"
+                @keydown.enter.prevent="searchCustomersImmediately"
             /></label>
+            <p class="customer-search-hint">Пошук запускається автоматично: від 3 символів для імені/назви або від 4 цифр для телефону.</p>
+            <p v-if="searchingCustomers" class="estimate-muted" role="status">Шукаємо клієнтів…</p>
+            <div v-if="customerMatches.length" class="customer-lookup-results">
+              <button v-for="c in customerMatches" :key="c.custNo" type="button" @click="chooseCustomer(c)">
+                <strong>{{ c.company || c.contact || ("Клієнт №" + c.custNo) }}</strong>
+                <span>{{ [c.contact && c.contact !== c.company ? c.contact : "", c.mobile || c.phone, c.addr1].filter(Boolean).join(" · ") }}</span>
+              </button>
+            </div>
+            <p v-if="customerSearchMessage" class="estimate-muted" role="status">{{ customerSearchMessage }}</p>
+          </div>
+          <div class="estimate-grid customer-grid">
             <label
               >Телефон<input
                 v-model="details.phone"
@@ -506,6 +563,20 @@ onBeforeUnmount(() => {
             /></label>
           </div>
           <p v-if="leadError" role="alert">{{ leadError }}. Рекомендовані строки недоступні.</p><button type="button" :disabled="leadBusy" @click="loadLeadSettings">{{ leadBusy ? 'Завантаження строків…' : 'Оновити строки виконання' }}</button>
+          <aside v-if="deadlineApprovalRequired" class="deadline-info deadline-warning" aria-live="polite">
+            <strong>Треба погодити строки з майстернею</strong>
+            <p>Обрана дата — {{ shortDate(details.dueDate) }} — раніше, ніж через 5 робочих днів (орієнтир: {{ shortDate(approvalCutoffDate) }}).</p>
+            <template v-if="deadlineApprovalAgreed">
+              <p v-if="savedOrder?.deadlineApprovalStatus === 'APPROVED' && !savedDirty">
+                Погоджено: {{ savedOrder.deadlineApprovedBy || "користувач" }} · {{ formatApprovalTime(savedOrder.deadlineApprovedAt) }}.
+              </p>
+              <p v-else>Погоджено з майстернею. Хто й коли погодив, буде записано після збереження замовлення.</p>
+            </template>
+            <template v-else>
+              <p v-if="savedOrder?.deadlineApprovalStatus === 'PENDING'">Статус погодження: очікує підтвердження.</p>
+              <button type="button" :disabled="orderBusy" @click="deadlineApprovalAgreed = true">Погоджено</button>
+            </template>
+          </aside>
           <aside v-if="leadConfig" class="deadline-info" :class="{ 'deadline-warning': timing.warning || shortages.length }" aria-live="polite">
             <strong>Строк виконання: {{ leadConfig.minDays }}–{{ leadConfig.normalDays }} робочих днів</strong>
             <p>Від сьогодні: {{ shortDate(timing.earliest) }}–{{ shortDate(timing.normal) }}. Робочі дні: понеділок–п’ятниця, день оформлення не враховується.</p>
@@ -515,38 +586,13 @@ onBeforeUnmount(() => {
               <ul><li v-for="m in shortages" :key="`${m.productId}-${m.partNo}`">{{ m.productName }} · {{ m.description }}: не вистачає {{ amount(m.shortage) }} {{ units[m.unit] || m.unit }}</li></ul>
               <p v-if="savedDirty">Склад або дані змінено. Дефіцит показано за останнім збереженим резервом; збережіть зміни для повторної перевірки.</p>
             </template>
-            <p v-if="timing.warning" role="alert">Обрана дата раніша за {{ shortages.length ? leadConfig.shortageDays : leadConfig.minDays }} робочих днів. Можлива затримка виконання.</p>
+            <p v-if="timing.warning && !deadlineApprovalRequired" role="alert">Обрана дата раніша за {{ shortages.length ? leadConfig.shortageDays : leadConfig.minDays }} робочих днів. Можлива затримка виконання.</p>
             <button v-if="timing.warning || (!details.dueDate && shortages.length)" type="button" @click="applySuggestedDate">Встановити {{ shortDate(timing.target) }}</button>
             <p v-if="savedOrder && savedDirty">Щоб зафіксувати нову дату, збережіть зміни замовлення.</p>
           </aside>
-          <div v-if="!savedOrder" class="estimate-actions">
-            <button
-              type="button"
-              :disabled="searchingCustomers || customerSearchQuery.trim().length < 2"
-              @click="findCustomers"
-            >
-              {{ searchingCustomers ? "Шукаємо…" : "Знайти клієнта" }}
-            </button>
-            <button
-              v-if="details.custNo"
-              type="button"
-              @click="
-                details.custNo = '';
-                customerMatches = [];
-              "
-            >
-              Змінити клієнта
-            </button>
-            <button
-              v-for="c in customerMatches"
-              :key="c.custNo"
-              type="button"
-              @click="chooseCustomer(c)"
-            >
-              {{ c.company || c.contact || ("Клієнт №" + c.custNo) }} · {{ c.contact && c.contact !== c.company ? c.contact + " · " : "" }}{{ c.mobile || c.phone || "без телефону" }}{{ c.addr1 ? " · " + c.addr1 : "" }}
-            </button>
+          <div v-if="!savedOrder && details.custNo" class="estimate-actions">
+            <button type="button" @click="clearSelectedCustomer">Очистити вибір клієнта</button>
           </div>
-          <p v-if="customerSearchMessage" class="estimate-muted" role="status">{{ customerSearchMessage }}</p>
           <p v-if="!details.custNo" class="estimate-muted">
             Якщо не обрати знайденого клієнта, під час збереження буде створено
             нового.
@@ -1051,4 +1097,18 @@ onBeforeUnmount(() => {
  .submit-actions .primary { grid-column: 1 / -1; }
  .estimate-result-line { flex-wrap: wrap; }
 }
+
+.customer-lookup{margin:14px 0 18px;padding:13px;background:#f8fbf9;border:1px solid #dfe9e2;border-radius:9px}
+.customer-search-label{display:flex;flex-direction:column;gap:5px;font-size:13px;line-height:1.4;font-weight:600}
+.customer-search-hint{margin:6px 0 0;color:#708078;font-size:12px;line-height:1.45}
+.customer-lookup-results{display:grid;gap:0;margin-top:10px;max-height:250px;overflow-y:auto;border:1px solid #dce5de;border-radius:8px;background:#fff}
+.customer-lookup-results button{display:grid;gap:4px;text-align:left;border:0;border-bottom:1px solid #edf1ee;border-radius:0;background:#fff;padding:10px 12px;min-height:0}
+.customer-lookup-results button:last-child{border-bottom:0}
+.customer-lookup-results button:hover{background:#edf5ef}
+.customer-lookup-results strong{font-size:13px;overflow-wrap:anywhere}
+.customer-lookup-results span{font-size:12px;color:#64766c;line-height:1.4;overflow-wrap:anywhere}
+.customer-lookup .estimate-muted{margin-bottom:0}
+.deadline-approval-warning{border-color:#e7c489;background:#fff7e8;color:#714b14}
+.deadline-approval-warning button{background:#254d3a;color:#fff;border-color:#254d3a}
+
 </style>
