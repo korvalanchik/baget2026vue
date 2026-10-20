@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { createOrder, loadOrderCatalog, searchCustomers } from '../services/orders.js'
 
 const props = defineProps({ session: { type: Object, required: true } })
@@ -25,6 +25,7 @@ const isSubmitting = ref(false)
 const message = ref('')
 const messageType = ref('')
 let searchTimer
+let customerSearchRequestId = 0
 const money = new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const currentQuantity = computed(() => Math.max(Number(form.quantity) || 1, 1))
 const frameCost = computed(() => { const perimeter = (Number(form.width) + Number(form.height)) * 2 / 1000; return perimeter > 0 ? perimeter * Number(form.framePrice || 0) : 0 })
@@ -48,18 +49,34 @@ function onFrameInput() {
   const profile = profiles.value.find((item) => item.description === form.frame)
   Object.assign(form, profile ? { framePrice: profile.listPrice, frameWidth: profile.profilWidth, framePartNo: profile.partNo } : { framePrice: '', frameWidth: '', framePartNo: '' })
 }
-function selectCustomer() {
-  const customer = customers.value.find((item) => item.mobile === form.phone)
-  if (customer) Object.assign(form, { customer: customer.company || '', address: customer.addr1 || '', note: customer.comment || '', customerNo: customer.custNo || '' })
+function selectCustomer(customer) {
+  if (!customer) return
+  customerSearchRequestId += 1
+  clearTimeout(searchTimer)
+  Object.assign(form, {
+    phone: customer.mobile || customer.phone || '',
+    customer: customer.company || '',
+    address: customer.addr1 || '',
+    note: customer.comment || '',
+    customerNo: customer.custNo || '',
+  })
+  customers.value = []
 }
-watch(() => form.phone, (phone) => {
+function searchCustomerInput() {
   form.customerNo = ''
   clearTimeout(searchTimer)
-  if (phone.trim().length < 5) { customers.value = []; return }
+  const query = form.phone.trim()
+  const requestId = ++customerSearchRequestId
+  if (query.length < 2) { customers.value = []; return }
   searchTimer = setTimeout(async () => {
-    try { customers.value = await searchCustomers(props.session.token, phone.trim()) } catch { customers.value = [] }
+    try {
+      const results = await searchCustomers(props.session.token, query)
+      if (requestId === customerSearchRequestId) customers.value = results
+    } catch {
+      if (requestId === customerSearchRequestId) customers.value = []
+    }
   }, 350)
-})
+}
 function buildItems() {
   const width = Number(form.width) / 1000
   const height = Number(form.height) / 1000
@@ -89,6 +106,8 @@ async function submit() {
 function resetForm(clearMessage = true) {
   Object.assign(form, initialForm())
   Object.keys(selections).forEach((key) => { selections[key] = 0 })
+  clearTimeout(searchTimer)
+  customerSearchRequestId += 1
   customers.value = []
   if (clearMessage) showMessage('', '')
 }
@@ -103,7 +122,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
       <div class="form-main">
         <section class="form-card"><div class="card-heading"><div class="heading-icon">▣</div><div><h2>Параметри рами</h2><p>Вкажіть розмір виробу та оберіть багет із каталогу</p></div></div><p v-if="isLoadingCatalog" class="catalog-status">Завантажуємо каталог багетів…</p><div class="fields frame-fields"><label>Ширина, мм<input v-model="form.width" type="number" min="1" placeholder="Наприклад, 600"></label><label>Висота, мм<input v-model="form.height" type="number" min="1" placeholder="Наприклад, 800"></label><label class="field-wide">Код багета<input v-model="form.frame" list="frame-catalog" :disabled="isLoadingCatalog" placeholder="Почніть вводити код або назву" @input="onFrameInput"><datalist id="frame-catalog"><option v-for="profile in profiles" :key="profile.partNo" :value="profile.description"></option></datalist></label><label>Ціна багета, ₴/м<input v-model="form.framePrice" type="number" readonly placeholder="Обирається з каталогу"></label><label>Ширина багета, мм<input v-model="form.frameWidth" type="number" readonly placeholder="Обирається з каталогу"></label></div></section>
         <section class="form-card options-card"><div class="card-heading"><div class="heading-icon sand">✦</div><div><h2>Комплектація</h2><p>Ціни додаткових матеріалів завантажуються з каталогу</p></div></div><div class="option-list"><div v-for="group in options" :key="group.id" class="option-row"><span>{{ group.label }}</span><div class="option-buttons"><button v-for="(choice, index) in group.choices" :key="choice.label" type="button" :disabled="isLoadingCatalog" :class="{ selected: selections[group.id] === index }" @click="selections[group.id] = index">{{ choice.label }}</button></div></div></div></section>
-        <section class="form-card"><div class="card-heading"><div class="heading-icon green-icon">♙</div><div><h2>Дані клієнта</h2><p>Телефон покаже знайдених у системі клієнтів</p></div></div><div class="fields customer-fields"><label>Філія<input :value="props.session.branch.name" readonly></label><label>Телефон замовника<input v-model="form.phone" list="customer-phones" type="tel" placeholder="099 123 45 67" @change="selectCustomer"><datalist id="customer-phones"><option v-for="customer in customers" :key="customer.custNo" :value="customer.mobile">{{ customer.company }}</option></datalist></label><label>Ім’я замовника<input v-model="form.customer" placeholder="Ім’я та прізвище"></label><label>Адреса<input v-model="form.address" placeholder="Місто, вулиця, будинок"></label><label>Бажана дата готовності<input v-model="form.dueDate" type="date"></label><label class="field-wide">Примітка<textarea v-model="form.note" placeholder="Особливі побажання клієнта, опис роботи…"></textarea></label></div></section>
+        <section class="form-card"><div class="card-heading"><div class="heading-icon green-icon">♙</div><div><h2>Дані клієнта</h2><p>Шукайте клієнта за телефоном, ім’ям або назвою компанії</p></div></div><div class="fields customer-fields"><label>Філія<input :value="props.session.branch.name" readonly></label><div class="customer-search-field"><label for="customer-phone-search">Телефон або ім’я / компанія<input id="customer-phone-search" v-model="form.phone" type="text" autocomplete="off" placeholder="Телефон, ім’я чи назва компанії" @input="searchCustomerInput"></label><div v-if="customers.length" class="customer-search-results"><button v-for="customer in customers" :key="customer.custNo" type="button" @pointerdown.prevent="selectCustomer(customer)"><strong>{{ customer.company || customer.contact || ('Клієнт №' + customer.custNo) }}</strong><span>{{ [customer.contact, customer.mobile || customer.phone, customer.addr1].filter(Boolean).join(' · ') }}</span></button></div></div><label>Ім’я замовника<input v-model="form.customer" placeholder="Ім’я та прізвище"></label><label>Адреса<input v-model="form.address" placeholder="Місто, вулиця, будинок"></label><label>Бажана дата готовності<input v-model="form.dueDate" type="date"></label><label class="field-wide">Примітка<textarea v-model="form.note" placeholder="Особливі побажання клієнта, опис роботи…"></textarea></label></div></section>
       </div>
       <aside class="summary-panel"><section class="summary-card"><div class="summary-title"><h2>Підсумок замовлення</h2><span>Нове</span></div><div class="summary-size"><span>Розмір виробу</span><strong>{{ form.width || '—' }} × {{ form.height || '—' }} мм</strong></div><div class="summary-line"><span>Багет</span><strong>{{ formatted(frameCost) }}</strong></div><div class="summary-line"><span>Додаткові послуги</span><strong>{{ formatted(extrasCost) }}</strong></div><div class="summary-line discount-line"><span>Знижка, %</span><input v-model="form.discount" type="number" min="0" max="100"></div><div class="summary-line"><span>Кількість</span><input v-model="form.quantity" type="number" min="1"></div><div class="total"><span>До сплати</span><strong>{{ formatted(total) }}</strong><small>з урахуванням знижки</small></div><button class="submit-order" type="submit" :disabled="isSubmitting || isLoadingCatalog">{{ isSubmitting ? 'Оформлюємо…' : 'Оформити замовлення' }} <span>→</span></button><button class="clear-form" type="button" :disabled="isSubmitting" @click="resetForm()">Очистити форму</button><p v-if="message" class="form-message" :class="{ success: messageType === 'success' }">{{ message }}</p></section><section class="tip-card"><span>✦</span><p><strong>Активна філія</strong> {{ props.session.branch.name }}. Замовлення буде оформлено саме для неї.</p></section></aside>
     </form>

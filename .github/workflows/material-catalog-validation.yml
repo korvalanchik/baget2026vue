@@ -31,6 +31,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run ESLint on changed files
-        run: npx eslint src/components/MaterialsDesk.vue src/components/SettingsDesk.vue src/components/WorkPricesDesk.vue src/components/CashDesk.vue src/services/workPrices.js
+        run: npx eslint src/components/MaterialsDesk.vue src/components/SettingsDesk.vue src/components/WorkPricesDesk.vue src/components/CashDesk.vue src/components/OrderForm.vue src/services/workPrices.js
       - name: Build for production
         run: npm run build
