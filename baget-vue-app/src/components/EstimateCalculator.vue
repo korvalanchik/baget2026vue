@@ -74,6 +74,14 @@ async function loadLeadSettings() {
 }
 const timing = computed(() => leadConfig.value ? leadTime(details.dueDate, deadlineStart.value, shortages.value.length > 0, leadConfig.value) : {});
 const shortDate = value => value ? value.split('-').reverse().join('.') : '';
+function formatApprovalTime(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("uk-UA", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "Europe/Kyiv",
+  }).format(new Date(value));
+}
 function applySuggestedDate() {
   if (!leadConfig.value || orderBusy.value || (savedOrder.value && savedOrder.value.statusOrder !== 1)) return;
   details.dueDate = timing.value.target;
@@ -518,16 +526,26 @@ onBeforeUnmount(() => {
           <p>
             Філія: {{ savedOrder?.branchName || props.session.branch.name }}
           </p>
-          <div class="estimate-grid customer-grid">
-            <label class="customer-search-input"
+          <div v-if="!savedOrder" class="customer-lookup">
+            <label class="customer-search-label"
               >Пошук клієнта за телефоном, ім’ям або назвою компанії<input
                 v-model="customerSearchQuery"
                 type="search"
                 autocomplete="off"
                 placeholder="Введіть телефон, ім’я чи назву компанії"
-                :disabled="Boolean(savedOrder)"
-                @keydown.enter.prevent="findCustomers"
+                @keydown.enter.prevent="searchCustomersImmediately"
             /></label>
+            <p class="customer-search-hint">Пошук запускається автоматично: від 3 символів для імені/назви або від 4 цифр для телефону.</p>
+            <p v-if="searchingCustomers" class="estimate-muted" role="status">Шукаємо клієнтів…</p>
+            <div v-if="customerMatches.length" class="customer-lookup-results">
+              <button v-for="c in customerMatches" :key="c.custNo" type="button" @click="chooseCustomer(c)">
+                <strong>{{ c.company || c.contact || ("Клієнт №" + c.custNo) }}</strong>
+                <span>{{ [c.contact && c.contact !== c.company ? c.contact : "", c.mobile || c.phone, c.addr1].filter(Boolean).join(" · ") }}</span>
+              </button>
+            </div>
+            <p v-if="customerSearchMessage" class="estimate-muted" role="status">{{ customerSearchMessage }}</p>
+          </div>
+          <div class="estimate-grid customer-grid">
             <label
               >Телефон<input
                 v-model="details.phone"
@@ -552,6 +570,17 @@ onBeforeUnmount(() => {
             /></label>
           </div>
           <p v-if="leadError" role="alert">{{ leadError }}. Рекомендовані строки недоступні.</p><button type="button" :disabled="leadBusy" @click="loadLeadSettings">{{ leadBusy ? 'Завантаження строків…' : 'Оновити строки виконання' }}</button>
+          <aside v-if="deadlineApprovalRequired" class="deadline-info deadline-warning" aria-live="polite">
+            <strong>Треба погодити строки з майстернею</strong>
+            <p>Обрана дата — {{ shortDate(details.dueDate) }} — раніше, ніж через 5 робочих днів (орієнтир: {{ shortDate(approvalCutoffDate) }}).</p>
+            <template v-if="deadlineApprovalAgreed">
+              <p v-if="savedOrder?.deadlineApprovalStatus === 'APPROVED' && !savedDirty">
+                Погоджено: {{ savedOrder.deadlineApprovedBy || "користувач" }} · {{ formatApprovalTime(savedOrder.deadlineApprovedAt) }}.
+              </p>
+              <p v-else>Погоджено з майстернею. Хто й коли погодив, буде записано після збереження замовлення.</p>
+            </template>
+            <button v-else type="button" :disabled="orderBusy" @click="deadlineApprovalAgreed = true">Погоджено</button>
+          </aside>
           <aside v-if="leadConfig" class="deadline-info" :class="{ 'deadline-warning': timing.warning || shortages.length }" aria-live="polite">
             <strong>Строк виконання: {{ leadConfig.minDays }}–{{ leadConfig.normalDays }} робочих днів</strong>
             <p>Від сьогодні: {{ shortDate(timing.earliest) }}–{{ shortDate(timing.normal) }}. Робочі дні: понеділок–п’ятниця, день оформлення не враховується.</p>
@@ -565,34 +594,9 @@ onBeforeUnmount(() => {
             <button v-if="timing.warning || (!details.dueDate && shortages.length)" type="button" @click="applySuggestedDate">Встановити {{ shortDate(timing.target) }}</button>
             <p v-if="savedOrder && savedDirty">Щоб зафіксувати нову дату, збережіть зміни замовлення.</p>
           </aside>
-          <div v-if="!savedOrder" class="estimate-actions">
-            <button
-              type="button"
-              :disabled="searchingCustomers || customerSearchQuery.trim().length < 2"
-              @click="findCustomers"
-            >
-              {{ searchingCustomers ? "Шукаємо…" : "Знайти клієнта" }}
-            </button>
-            <button
-              v-if="details.custNo"
-              type="button"
-              @click="
-                details.custNo = '';
-                customerMatches = [];
-              "
-            >
-              Змінити клієнта
-            </button>
-            <button
-              v-for="c in customerMatches"
-              :key="c.custNo"
-              type="button"
-              @click="chooseCustomer(c)"
-            >
-              {{ c.company || c.contact || ("Клієнт №" + c.custNo) }} · {{ c.contact && c.contact !== c.company ? c.contact + " · " : "" }}{{ c.mobile || c.phone || "без телефону" }}{{ c.addr1 ? " · " + c.addr1 : "" }}
-            </button>
+          <div v-if="!savedOrder && details.custNo" class="estimate-actions">
+            <button type="button" @click="clearSelectedCustomer">Очистити вибір клієнта</button>
           </div>
-          <p v-if="customerSearchMessage" class="estimate-muted" role="status">{{ customerSearchMessage }}</p>
           <p v-if="!details.custNo" class="estimate-muted">
             Якщо не обрати знайденого клієнта, під час збереження буде створено
             нового.
