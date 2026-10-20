@@ -1,6 +1,6 @@
 <script setup>
 import { leadTimeSettings } from '../services/leadTimeSettings.js'
-import { kyivToday, leadTime, shortageMaterials } from '../calculation/leadTime.js' 
+import { addWorkingDays, kyivToday, leadTime, shortageMaterials } from '../calculation/leadTime.js' 
 import PriceApprovalPanel from './PriceApprovalPanel.vue'
 import CustomerFinancePanel from './CustomerFinancePanel.vue'
 import { canAcceptCustomerPayment } from '../services/customerPayments.js'
@@ -55,6 +55,12 @@ const customerMatches = ref([]);
 const customerSearchQuery = ref("");
 const customerSearchMessage = ref("");
 const searchingCustomers = ref(false);
+const deadlineApprovalAgreed = ref(false);
+const approvalCutoffDate = computed(() => addWorkingDays(deadlineStart.value, 5));
+const deadlineApprovalRequired = computed(() =>
+  Boolean(details.dueDate && approvalCutoffDate.value && details.dueDate < approvalCutoffDate.value),
+);
+let customerSearchTimer;
 const orderBusy = ref(false);
 const savedOrder = ref(null);
 const savedDirty = ref(false);
@@ -84,12 +90,36 @@ watch(
     customerMatches.value = [];
   },
 );
+function customerSearchMinimum(query) {
+  const significantCharacters = Array.from(query.matchAll(/[\\p{L}\\p{N}]/gu)).length;
+  const hasLetters = /\\p{L}/u.test(query);
+  return hasLetters ? 3 : 4;
+}
 watch(
   customerSearchQuery,
-  () => {
-    customerSearchGeneration++;
+  (value) => {
+    clearTimeout(customerSearchTimer);
+    const generation = ++customerSearchGeneration;
+    const query = value.trim();
     customerMatches.value = [];
     customerSearchMessage.value = "";
+    searchingCustomers.value = false;
+    if (!query) return;
+    const significantCharacters = Array.from(query.matchAll(/[\\p{L}\\p{N}]/gu)).length;
+    const minLength = customerSearchMinimum(query);
+    if (significantCharacters < minLength) {
+      customerSearchMessage.value = /\\p{L}/u.test(query)
+        ? "Введіть щонайменше 3 літери або цифри для пошуку."
+        : "Для пошуку за телефоном введіть щонайменше 4 цифри.";
+      return;
+    }
+    customerSearchTimer = setTimeout(() => findCustomers(query, generation), 450);
+  },
+);
+watch(
+  () => details.dueDate,
+  (next, previous) => {
+    if (!restoring && next !== previous) deadlineApprovalAgreed.value = false;
   },
 );
 function changedDraft() {
@@ -106,13 +136,9 @@ watch(artworks, () => {
 }, { deep: true, flush: "sync" });
 watch(artworks, changedDraft, { deep: true, flush: "sync" });
 watch(details, changedDraft, { deep: true, flush: "sync" });
-async function findCustomers() {
-  const query = customerSearchQuery.value.trim();
-  if (query.length < 2) {
-    customerSearchMessage.value = "Введіть щонайменше 2 символи для пошуку.";
-    return;
-  }
-  const generation = ++customerSearchGeneration;
+async function findCustomers(query = customerSearchQuery.value.trim(), generation = customerSearchGeneration) {
+  const significantCharacters = Array.from(query.matchAll(/[\\p{L}\\p{N}]/gu)).length;
+  if (significantCharacters < customerSearchMinimum(query)) return;
   searchingCustomers.value = true;
   customerSearchMessage.value = "";
   try {
@@ -129,6 +155,17 @@ async function findCustomers() {
   } finally {
     if (generation === customerSearchGeneration) searchingCustomers.value = false;
   }
+}
+function searchCustomersImmediately() {
+  clearTimeout(customerSearchTimer);
+  void findCustomers(customerSearchQuery.value.trim(), customerSearchGeneration);
+}
+function clearSelectedCustomer() {
+  details.custNo = "";
+  details.company = "";
+  details.phone = "";
+  details.address = "";
+  customerMatches.value = [];
 }
 function chooseCustomer(c) {
   Object.assign(details, {
@@ -166,6 +203,7 @@ function acceptSaved(order, restore = false) {
     });
   }
   savedOrder.value = order;
+  deadlineApprovalAgreed.value = order.deadlineApprovalStatus === "APPROVED";
   savedDirty.value = false;
   openNumber.value = String(order.orderNo);
   restoring = false;
@@ -183,6 +221,7 @@ async function saveOrder() {
       requestKey,
       savedOrder.value?.revision || 0,
     );
+    payload.deadlineApprovedWithWorkshop = deadlineApprovalAgreed.value;
   } catch (e) {
     error.value = e.message;
     return;
@@ -409,10 +448,12 @@ function reset() {
     dueDate: "",
   });
   customerSearchGeneration++;
+  clearTimeout(customerSearchTimer);
   searchingCustomers.value = false;
   customerMatches.value = [];
   customerSearchQuery.value = "";
   customerSearchMessage.value = "";
+  deadlineApprovalAgreed.value = false;
   requestKey = newRequestKey();
   openNumber.value = "";
   orderMessage.value = "";
@@ -423,6 +464,7 @@ onMounted(loadLeadSettings);
 onBeforeUnmount(() => {
   revision++;
   controller?.abort();
+  clearTimeout(customerSearchTimer);
 });
 </script>
 
