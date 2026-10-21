@@ -266,7 +266,7 @@ onMounted(async () => {
 .invoice-row{align-items:flex-start;flex-wrap:wrap;gap:12px}
 .invoice-main{min-width:140px;flex:1}
 .invoice-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
-.invoice-actions button{min-height:40px;font-size:12px}
+.invoice-actions button{min-height:40px;font-size:12px;max-width:100%}
 @media(max-width:700px){.invoice-actions{display:grid;grid-template-columns:1fr 1fr;width:100%}.invoice-actions button{width:100%;min-height:44px}.invoice-actions button:last-child{grid-column:1/-1}}
 .customer-card,.card-content,.order-row,.inline-issue{min-width:0;overflow-wrap:anywhere}.finance-action button{white-space:normal;max-width:100%;box-sizing:border-box}@media(max-width:700px){.card-content{padding:10px}.order-row{padding:8px}.order-actions{display:grid;gap:6px}.order-actions button,.finance-action button{width:100%;white-space:normal}.card-nav{display:grid;grid-template-columns:1fr 1fr;overflow:visible}.card-nav button{white-space:normal}.inline-issue :deep(.issue-panel){padding:8px;margin-top:10px}}
 </style>
