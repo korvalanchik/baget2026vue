@@ -8,6 +8,7 @@ import { newRequestKey } from '../services/requestKey.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import PickupActions from './PickupActions.vue'
 import { crm } from '../services/crm.js'
+import { openCustomerInvoicePdf } from '../services/customerInvoicePdf.js'
 import { canAcceptCustomerPayment } from '../services/customerPayments.js'
 import { outcomes, locations, productionStates, orderStates, phoneLink, contactPayload, groupedOrders } from '../calculation/crm.js'
 const props = defineProps({ session: { type: Object, required: true }, initialCustomer: { type: Object, default: null } })
@@ -20,6 +21,7 @@ const loading = ref(false), saving = ref(false), error = ref(''), notice = ref('
 const filters = reactive({ branch: '', tab: 'WORK', q: '', all: false, due: false })
 const form = reactive({ outcome: 'NOTE', note: '', orderNo: '', invoiceId: '', nextContactDate: '' })
 const formBaseline = ref('')
+const invoicePdfBusy = ref(null)
 const dirty = computed(() => JSON.stringify(form) !== formBaseline.value)
 const pickupByOrder = computed(() => new Map((detail.value?.pickupOrders || []).map(o => [String(o.orderNo), o])))
 const orders = computed(() => {
@@ -57,6 +59,18 @@ function contactTiming(value) {
  const part = key => parts.find(p => p.type === key).value
  const today = `${part('year')}-${part('month')}-${part('day')}`
  return value < today ? 'Контакт пропущено' : value === today ? 'Зв’язатися сьогодні' : 'Наступний контакт'
+}
+async function openInvoiceDocument(invoiceId, print = false) {
+ if (invoicePdfBusy.value !== null) return
+ invoicePdfBusy.value = invoiceId
+ error.value = ''
+ try {
+  await openCustomerInvoicePdf(props.session.token, invoiceId, { print })
+ } catch (e) {
+  error.value = e.message
+ } finally {
+  invoicePdfBusy.value = null
+ }
 }
 let boardGeneration = 0, retry = null
 const fmtDate = value => value ? new Date(value.length === 10 ? value + 'T12:00:00' : value).toLocaleString('uk-UA', value.length === 10 ? { day: '2-digit', month: '2-digit', year: '2-digit' } : { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
@@ -217,7 +231,14 @@ onMounted(async () => {
       </section>
       <section v-if="cardTab === 'invoices'">
        <h3>Рахунки клієнта</h3><p class="muted small">Оплати, аванс і залишок доступні за кнопкою фінансового стану вгорі картки.</p><p v-if="detail.invoices.length > 200">Показано останні 200 рахунків.</p><p v-if="!detail.invoices.length" class="empty">Рахунків немає.</p>
-       <article v-for="i in detail.invoices.slice(0, 200)" :key="i.id" class="invoice-row"><div><strong>№ {{ i.invoiceNo }}</strong><p class="muted">{{ invoiceStates[i.status] || i.status }} · {{ invoiceStates[i.lifecycle] || i.lifecycle }}</p></div><button :disabled="saving" @click="linkContact('invoiceId', i.id)">Записати контакт</button></article>
+       <article v-for="i in detail.invoices.slice(0, 200)" :key="i.id" class="invoice-row">
+        <div class="invoice-main"><strong>№ {{ i.invoiceNo }}</strong><p class="muted">{{ invoiceStates[i.status] || i.status }} · {{ invoiceStates[i.lifecycle] || i.lifecycle }}</p></div>
+        <div class="invoice-actions">
+         <button :disabled="saving || invoicePdfBusy !== null" @click="openInvoiceDocument(i.id, false)">{{ invoicePdfBusy === i.id ? 'Формуємо PDF…' : 'Переглянути PDF' }}</button>
+         <button :disabled="saving || invoicePdfBusy !== null" @click="openInvoiceDocument(i.id, true)">Друк</button>
+         <button :disabled="saving || invoicePdfBusy !== null" @click="linkContact('invoiceId', i.id)">Записати контакт</button>
+        </div>
+       </article>
        <details v-if="financeAllowed"><summary>Умови видачі та кредиту</summary><CustomerCreditPanel :key="`${selected.customerId}-${selected.branchNo}`" :session="session" :customer-id="Number(selected.customerId)" :branch-no="Number(selected.branchNo)" @busy="saving = $event" /></details>
       </section>
       <section v-show="cardTab === 'history'">
@@ -242,5 +263,10 @@ onMounted(async () => {
 @media(max-width:900px){.crm{padding:16px}.workspace{grid-template-columns:minmax(245px,300px) minmax(0,1fr);gap:12px}.card-heading{flex-direction:column}.card-actions{justify-content:flex-start}.card-content{padding:16px}.form-pair{grid-template-columns:1fr}.card-nav{padding:0 8px}.card-nav button{font-size:12px;padding:9px 8px}}
 @media(max-width:700px){.crm{padding:12px}.page-heading{align-items:start;margin-bottom:14px}.page-heading h1{font-size:22px}.page-heading>button{max-width:48%;font-size:12px}.workspace{display:block}.card-placeholder{display:none}.client-list{max-height:none;overflow:visible}.has-selection .list-pane,.has-selection .board-controls{display:none}.filters{grid-template-columns:1fr auto;gap:10px}.search-field{grid-column:1/-1}.branch-field{min-width:0}.filter-options{gap:8px;flex-direction:column}.segment{width:100%;flex-wrap:nowrap}.segment button{flex:1;padding:8px 6px;font-size:12px}.customer-card{border-radius:10px}.card-heading{padding:14px}.card-summary,.finance-action{padding-left:14px;padding-right:14px}.form-pair{grid-template-columns:1fr 1fr}.save-row{align-items:start;flex-direction:column}.save-row .primary{width:100%}input,select,textarea{font-size:16px}button,.phone,.client-name,.text-button,summary{min-height:44px}summary{padding-top:8px;padding-bottom:8px}.check{min-height:36px}.client-row{padding:10px 14px}.card-nav button{font-size:12px}.history-entry header{flex-direction:column}.invoice-row{align-items:start}.invoice-row button{max-width:45%}.customer-card h2{font-size:20px}}
 @media(max-width:380px){.form-pair{grid-template-columns:1fr}.card-actions{width:100%}.card-actions button{flex:1}}
+.invoice-row{align-items:flex-start;flex-wrap:wrap;gap:12px}
+.invoice-main{min-width:140px;flex:1}
+.invoice-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.invoice-actions button{min-height:40px;font-size:12px}
+@media(max-width:700px){.invoice-actions{display:grid;grid-template-columns:1fr 1fr;width:100%}.invoice-actions button{width:100%;min-height:44px}.invoice-actions button:last-child{grid-column:1/-1}}
 .customer-card,.card-content,.order-row,.inline-issue{min-width:0;overflow-wrap:anywhere}.finance-action button{white-space:normal;max-width:100%;box-sizing:border-box}@media(max-width:700px){.card-content{padding:10px}.order-row{padding:8px}.order-actions{display:grid;gap:6px}.order-actions button,.finance-action button{width:100%;white-space:normal}.card-nav{display:grid;grid-template-columns:1fr 1fr;overflow:visible}.card-nav button{white-space:normal}.inline-issue :deep(.issue-panel){padding:8px;margin-top:10px}}
 </style>
