@@ -14,7 +14,7 @@ const options = [
   { id: 'stretch', label: 'Натяжка', dimensions: true, choices: [{ label: 'Немає' }, { label: 'На підрамник', partNo: 5140, price: 140 }, { label: 'На площину', partNo: 5130, price: 120 }] },
   { id: 'installation', label: 'Інсталяція', choices: [{ label: 'Немає' }, { label: 'Годинник', partNo: 33230, price: 90 }, { label: 'Кіот, короб', partNo: 29780, price: 350 }] },
   { id: 'hanger', label: 'Вид підвісу', choices: [{ label: 'Немає' }, { label: 'Шнурок', partNo: 14460, price: 45, multiplier: 2 }, { label: 'Крокодил', partNo: 14450, price: 55 }, { label: 'Посилений', partNo: 14260, price: 110, multiplier: 2 }, { label: 'Силовий', partNo: 29650, price: 140, multiplier: 2 }, { label: 'Лапка', partNo: 23080, price: 70 }] },
-  { id: 'delivery', label: 'Доставка', choices: [{ label: 'Немає' }, { label: 'Автодоставка', partNo: 33240, price: 180 }, { label: 'Нова пошта', partNo: 33250, price: 120 }] },
+  { id: 'delivery', label: 'Доставка', choices: [{ label: 'Немає' }, { label: 'Доставка авто', partNo: 33240, price: 180 }, { label: 'Нова пошта', partNo: 33250, price: 120 }] },
 ]
 const selections = reactive(Object.fromEntries(options.map((group) => [group.id, 0])))
 const profiles = ref([])
