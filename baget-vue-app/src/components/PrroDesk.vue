@@ -1,6 +1,5 @@
 <script setup>
 import { onBeforeUnmount, ref } from "vue";
-import { apiOrigin } from "../services/auth.js";
 import { inspectRro } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
@@ -10,7 +9,6 @@ const error = ref("");
 const message = ref("");
 const result = ref(null);
 const widgetVisible = ref(false);
-const widgetReady = ref(false);
 let endUser = null;
 let scriptPromise = null;
 
@@ -42,7 +40,6 @@ async function getWidget() {
   // The SignWidget performs its own initialization; allow the iframe to load
   // before sending the first command (the connector queues commands meanwhile).
   await new Promise((resolve) => window.setTimeout(resolve, 1200));
-  widgetReady.value = true;
   return endUser;
 }
 
