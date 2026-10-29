@@ -33,6 +33,7 @@ const adminPermissions = [
   "finance:read",
   "samples:read",
   "samples:manage",
+  "prro:diagnostics",
 ];
 const branchOrderRoles = [
   "ROLE_MANAGER",
