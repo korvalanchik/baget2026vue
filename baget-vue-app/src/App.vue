@@ -6,6 +6,7 @@ import FinanceDesk from "./components/FinanceDesk.vue";
 import DeskLayout from "./components/DeskLayout.vue";
 import { financeTarget } from "./services/financeNavigation.js";
 import SettingsDesk from "./components/SettingsDesk.vue";
+import PrroDesk from "./components/PrroDesk.vue";
 import BranchOrdersDesk from "./components/BranchOrdersDesk.vue";
 import AccountantDesk from "./components/AccountantDesk.vue";
 import MaterialsDesk from "./components/MaterialsDesk.vue";
@@ -97,6 +98,7 @@ const navigation = [
   { id: "finance", icon: "₴", label: "Фінанси", access: "finance:read" },
   { id: "samples", icon: "▤", label: "Зразки багету", access: "samples:read" },
   { id: "settings", icon: "⚙", label: "Налаштування" },
+  { id: "prro", icon: "◎", label: "ПРРО — діагностика", access: "prro:diagnostics" },
 ];
 const isAdmin = computed(() => session.value?.roles?.includes("ROLE_ADMIN") === true);
 const allowedNavigation = computed(() => {
@@ -199,6 +201,7 @@ function signOut() {
         <EstimateCalculator :session="session" />
       </section>
       <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
+      <DeskLayout v-else-if="activeSection === 'prro' && canAccess(session, 'prro:diagnostics')" title="ПРРО — діагностика" description="Підписання запиту через ІІТ і перевірка ПРРО на сервері ДПС."><PrroDesk :session="session" /></DeskLayout>
       <FrameSamplesDesk v-else-if="activeSection === 'samples' && canAccess(session, 'samples:read')" :session="session" />
       <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" :initial-tab="taskContext?.tab" :initial-order-no="taskContext?.orderNo" />
       <DeskLayout v-else-if="activeSection === 'cash' && canAcceptCustomerPayment(session)" title="Каси та рахунки" description="Щоденна робота з коштами філій та центральної каси."><CashDesk :session="session" @open-purchase="taskNavigate({ section: 'finance', tab: 'purchases', receiptId: $event })" /></DeskLayout>
