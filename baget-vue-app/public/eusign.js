@@ -24,8 +24,9 @@
     url.searchParams.set("address", window.location.origin);
     url.searchParams.set("formType", String(this.formType));
     url.searchParams.set("debug", "false");
-    Object.keys(this.formParams || {}).forEach(function (key) {
-      url.searchParams.set(key, String(this.formParams[key]));
+    var formParams = this.formParams || {};
+    Object.keys(formParams).forEach(function (key) {
+      url.searchParams.set(key, String(formParams[key]));
     });
     iframe.id = this.id;
     iframe.src = url.toString();
