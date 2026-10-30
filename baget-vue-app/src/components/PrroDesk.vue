@@ -51,7 +51,7 @@ async function inspect() {
   result.value = null;
   checkedFiscalNumber.value = "";
   const number = fiscalNumber.value.trim();
-  if (!/^\\d{1,32}$/.test(number)) {
+  if (!/^\d{1,32}$/.test(number)) {
     error.value = "Введіть фіскальний номер: лише цифри.";
     return;
   }
