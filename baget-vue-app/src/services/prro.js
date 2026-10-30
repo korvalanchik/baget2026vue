@@ -1,13 +1,13 @@
 import { apiOrigin } from "./auth.js";
 
-export async function inspectRro(token, fiscalNumber, signatureBase64) {
+export async function inspectRro(token, signatureBase64) {
   const response = await fetch(`${apiOrigin}/api/prro/diagnostics/info`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ fiscalNumber, signatureBase64 }),
+    body: JSON.stringify({ signatureBase64 }),
   });
   if (response.ok) return response.json();
 
