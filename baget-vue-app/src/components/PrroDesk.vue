@@ -4,6 +4,7 @@ import { inspectRro } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
 const fiscalNumber = ref("4000318883");
+const checkedFiscalNumber = ref("");
 const busy = ref(false);
 const error = ref("");
 const message = ref("");
@@ -48,8 +49,9 @@ async function inspect() {
   error.value = "";
   message.value = "";
   result.value = null;
+  checkedFiscalNumber.value = "";
   const number = fiscalNumber.value.trim();
-  if (!/^\d{1,32}$/.test(number)) {
+  if (!/^\\d{1,32}$/.test(number)) {
     error.value = "Введіть фіскальний номер: лише цифри.";
     return;
   }
@@ -72,7 +74,8 @@ async function inspect() {
     }
     widgetVisible.value = false;
     message.value = "Підпис отримано. Запитуємо infoRro та statusRro у ДПС…";
-    result.value = await inspectRro(props.session.token, number, signatureBase64);
+    result.value = await inspectRro(props.session.token, signatureBase64);
+    checkedFiscalNumber.value = number;
     message.value = "ДПС відповіла успішно. Це лише діагностика ПРРО — чек не фіскалізовано.";
   } catch (e) {
     error.value = e.message || "Помилка підписання або запиту до ДПС.";
@@ -128,7 +131,7 @@ onBeforeUnmount(() => {
     <div v-if="result" class="prro-panel">
       <h3>Відповідь ДПС</h3>
       <dl class="prro-result">
-        <div><dt>Фіскальний номер</dt><dd>{{ result.fiscalNumber }}</dd></div>
+        <div><dt>Номер, переданий на підписання</dt><dd>{{ checkedFiscalNumber }}</dd></div>
         <div><dt>infoRro</dt><dd>{{ result.infoStatus }}</dd></div>
         <div><dt>statusRro</dt><dd>{{ result.statusStatus }}</dd></div>
         <div><dt>Статус ПРРО</dt><dd>{{ result.statusRro }}</dd></div>
@@ -139,6 +142,7 @@ onBeforeUnmount(() => {
         <div><dt>Останній підписувач</dt><dd>{{ result.lastSigner || "—" }}</dd></div>
         <div><dt>Помилка statusRro</dt><dd>{{ result.statusErrorMessage || "—" }}</dd></div>
       </dl>
+      <p class="prro-note">Номер вище взято з введеного значення, яке підписував віджет ІІТ. Відповідь про ПРРО ДПС визначає за підписаними даними, а не за окремо переданим номером.</p>
       <h4>Зареєстровані оператори</h4>
       <p v-if="!result.operators?.length">ДПС не повернула список операторів.</p>
       <ul v-else class="prro-operators">
