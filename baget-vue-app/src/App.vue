@@ -72,7 +72,7 @@ const session = ref(restoreSession());
 const activeSection = ref(
   session.value?.roles?.includes("ROLE_COURIER") && !session.value.roles.includes("ROLE_ADMIN")
     ? "samples"
-    : prroOnly.value ? "prro" : scannedProduct ? "scanning" : "home",
+    : session.value?.roles?.some(role => ["ROLE_CASHIER", "ROLE_SENIOR_CASHIER"].includes(role)) ? "prro" : scannedProduct ? "scanning" : "home",
 );
 const navigation = [
   { id: "home", icon: "⌂", label: "Мої завдання" },
