@@ -33,6 +33,7 @@ const adminPermissions = [
   "finance:read",
   "samples:read",
   "samples:manage",
+  "prro:operate",
   "prro:diagnostics",
 ];
 const branchOrderRoles = [
@@ -47,6 +48,8 @@ const accountantRoles = ["ROLE_ACCOUNTANT", "ROLE_BOOKKEEPER", "ROLE_COUNTER"];
 function permissionsFor(roles) {
   // Administrator access takes precedence over all additional roles.
   if (roles.includes("ROLE_ADMIN")) return adminPermissions;
+  if (roles.includes("ROLE_SENIOR_CASHIER")) return ["prro:operate", "prro:diagnostics"];
+  if (roles.includes("ROLE_CASHIER")) return ["prro:operate"];
 
   // A courier is deliberately restricted to the sample desk, even if another
   // non-admin role was assigned accidentally.
@@ -128,9 +131,10 @@ export async function signIn({ nickname, password, branchName }) {
   const roleData = await authorizedGet("/auth/check-role", login.jwtToken);
   const roles = normalizeRoles(roleData);
   const isAdmin = roles.includes("ROLE_ADMIN");
+  const isSeniorCashier = roles.includes("ROLE_SENIOR_CASHIER");
   let branch;
-  if (isAdmin) {
-    branch = { id: null, name: "Усі філії", address: "Глобальний доступ" };
+  if (isAdmin || isSeniorCashier) {
+    branch = { id: null, name: isAdmin ? "Усі філії" : "Усі каси", address: isAdmin ? "Глобальний доступ" : "Операційний доступ старшого касира" };
   } else {
     if (!branchName.trim()) throw new Error("Оберіть або введіть назву філії.");
     const branchData = await authorizedGet(
