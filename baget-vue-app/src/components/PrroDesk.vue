@@ -65,7 +65,7 @@ async function refreshShift() {
     if (typeof signatureBase64 !== "string" || !signatureBase64.length) throw new Error("Віджет ІІТ не повернув підпис у Base64.");
     widgetVisible.value = false;
     message.value = "Підпис отримано. Перевіряємо стан каси у ДПС…";
-    shiftStatus.value = await getPrroShiftStatus(props.session.token, selectedBranch, signatureBase64);
+    shiftStatus.value = await getPrroShiftStatus(props.session.token, selectedBranch, number, signatureBase64);
     message.value = "Стан ПРРО отримано від ДПС. Перевірка не змінює стан каси.";
   } catch (e) { error.value = e.message || "Помилка підписання або перевірки стану ПРРО."; message.value = ""; }
   finally { busy.value = false; widgetVisible.value = false; }
