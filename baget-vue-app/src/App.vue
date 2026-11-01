@@ -104,7 +104,7 @@ const isAdmin = computed(() => session.value?.roles?.includes("ROLE_ADMIN") === 
 const allowedNavigation = computed(() => {
   const courierOnly = session.value?.roles?.includes("ROLE_COURIER") && !isAdmin.value;
   if (courierOnly) return navigation.filter((item) => item.id === "samples");
-  return navigation.filter((item) => item.id === "home" ? true : ["finance", "cash", "prro"].includes(item.id) ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access));
+  return navigation.filter((item) => item.id === "home" ? true : item.id === "prro" ? (canAccess(session.value, "prro:operate") || canAcceptCustomerPayment(session.value)) : ["finance", "cash"].includes(item.id) ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access));
 });
 function completeLogin(newSession) {
   menuOpen.value = false;
