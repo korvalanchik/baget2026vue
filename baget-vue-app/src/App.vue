@@ -201,7 +201,7 @@ function signOut() {
         <EstimateCalculator :session="session" />
       </section>
       <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
-      <DeskLayout v-else-if="activeSection === 'prro' && canAcceptCustomerPayment(session)" title="Каса / ПРРО" description="Відкриття зміни, фіскалізація чеків та закриття касової зміни."><PrroDesk :session="session" /></DeskLayout>
+      <DeskLayout v-else-if="activeSection === 'prro' && (canAccess(session, 'prro:operate') || canAcceptCustomerPayment(session))" title="Каса / ПРРО" description="Відкриття зміни, фіскалізація чеків та закриття касової зміни."><PrroDesk :session="session" /></DeskLayout>
       <FrameSamplesDesk v-else-if="activeSection === 'samples' && canAccess(session, 'samples:read')" :session="session" />
       <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" :initial-tab="taskContext?.tab" :initial-order-no="taskContext?.orderNo" />
       <DeskLayout v-else-if="activeSection === 'cash' && canAcceptCustomerPayment(session)" title="Каси та рахунки" description="Щоденна робота з коштами філій та центральної каси."><CashDesk :session="session" @open-purchase="taskNavigate({ section: 'finance', tab: 'purchases', receiptId: $event })" /></DeskLayout>
