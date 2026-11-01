@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
-const isAdmin = computed(() => props.session.roles?.includes("ROLE_ADMIN") === true);
+const canRunDiagnostics = computed(() => props.session.roles?.some(role => ["ROLE_ADMIN", "ROLE_SENIOR_CASHIER"].includes(role)) === true);
 const fiscalNumber = ref("");
 const branches = ref([]);
 const deviceName = ref("");
@@ -279,7 +279,7 @@ onBeforeUnmount(() => {
       </article>
     </section>
 
-    <details v-if="isAdmin" class="diagnostics">
+    <details v-if="canRunDiagnostics" class="diagnostics">
       <summary>Адміністративна діагностика ДПС</summary>
       <div class="prro-panel">
       <label for="rro-fiscal-number">Фіскальний номер ПРРО</label>
