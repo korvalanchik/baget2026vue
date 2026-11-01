@@ -5,7 +5,7 @@ import { getPrroShiftStatus, inspectRro } from "../services/prro.js";
 const props = defineProps({ session: { type: Object, required: true } });
 const isAdmin = computed(() => props.session.roles?.includes("ROLE_ADMIN") === true);
 const fiscalNumber = ref("4000318883");
-const branchNo = ref(/^\\d+$/.test(String(props.session.branch?.id ?? "")) ? String(props.session.branch.id) : "");
+const branchNo = ref(/^\d+$/.test(String(props.session.branch?.id ?? "")) ? String(props.session.branch.id) : "");
 const shiftStatus = ref(null);
 const checkedFiscalNumber = ref("");
 const busy = ref(false);
@@ -53,8 +53,8 @@ async function refreshShift() {
   error.value = ""; message.value = ""; shiftStatus.value = null;
   const number = fiscalNumber.value.trim();
   const selectedBranch = branchNo.value.trim();
-  if (!/^\\d{1,10}$/.test(selectedBranch) || Number(selectedBranch) <= 0) { error.value = "Вкажіть коректний номер філії для перевірки ПРРО."; return; }
-  if (!/^\\d{1,32}$/.test(number)) { error.value = "Введіть фіскальний номер ПРРО: лише цифри."; return; }
+  if (!/^\d{1,10}$/.test(selectedBranch) || Number(selectedBranch) <= 0) { error.value = "Вкажіть коректний номер філії для перевірки ПРРО."; return; }
+  if (!/^\d{1,32}$/.test(number)) { error.value = "Введіть фіскальний номер ПРРО: лише цифри."; return; }
   busy.value = true;
   try {
     message.value = "Завантажуємо віджет ІІТ…";
