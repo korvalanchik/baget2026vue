@@ -23,11 +23,11 @@ export async function inspectRro(token, signatureBase64) {
   throw error;
 }
 
-export async function getPrroShiftStatus(token, branchNo, signatureBase64) {
-  const query = new URLSearchParams({ branchNo: String(branchNo), signatureBase64 });
-  const response = await fetch(`${apiOrigin}/api/prro/shift/status?${query}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${token}` },
+export async function getPrroShiftStatus(token, branchNo, fiscalNumber, signatureBase64) {
+  const response = await fetch(apiOrigin + "/api/prro/shift/status", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+    body: JSON.stringify({ branchNo: Number(branchNo), fiscalNumber, signatureBase64 }),
   });
   if (response.ok) return response.json();
   let message = "Не вдалося отримати стан каси ПРРО.";
