@@ -100,3 +100,7 @@ export function savePrroDevice(token, id, device) {
 export function getPrroAudit(token) {
   return adminRequest(token, "/api/prro/admin/audit");
 }
+
+export function getPrroDeviceForBranch(token, branchNo) {
+  return adminRequest(token, `/api/prro/branches/${Number(branchNo)}/device`);
+}
