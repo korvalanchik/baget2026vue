@@ -197,7 +197,6 @@ onBeforeUnmount(() => {
       </ul>
     </div>
 
-      </div>
     </details>
 
     <div v-if="isAdmin" id="iit-widget-overlay" class="iit-widget-overlay" :class="{ visible: widgetVisible }">
