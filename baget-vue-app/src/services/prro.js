@@ -41,3 +41,22 @@ export async function getPrroShiftStatus(token, branchNo, fiscalNumber, signatur
   error.status = response.status;
   throw error;
 }
+
+export async function inspectLastPrroCheck(token, branchNo, fiscalNumber, signatureBase64) {
+  const response = await fetch(apiOrigin + "/api/prro/shift/last-check", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+    body: JSON.stringify({ branchNo: Number(branchNo), fiscalNumber, signatureBase64 }),
+  });
+  if (response.ok) return response.json();
+  let message = "Не вдалося отримати останній чек ПРРО від ДПС.";
+  try {
+    const body = await response.json();
+    message = body.message || body.detail || message;
+  } catch {
+    // Keep the safe fallback when the server response is not JSON.
+  }
+  const error = new Error(message);
+  error.status = response.status;
+  throw error;
+}

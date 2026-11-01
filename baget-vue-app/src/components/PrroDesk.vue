@@ -1,12 +1,13 @@
 <script setup>
 import { computed, onBeforeUnmount, ref } from "vue";
-import { getPrroShiftStatus, inspectRro } from "../services/prro.js";
+import { getPrroShiftStatus, inspectLastPrroCheck, inspectRro } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
 const isAdmin = computed(() => props.session.roles?.includes("ROLE_ADMIN") === true);
 const fiscalNumber = ref("4000318883");
 const branchNo = ref(/^\d+$/.test(String(props.session.branch?.id ?? "")) ? String(props.session.branch.id) : "");
 const shiftStatus = ref(null);
+const lastCheck = ref(null);
 const checkedFiscalNumber = ref("");
 const busy = ref(false);
 const error = ref("");
@@ -69,6 +70,51 @@ async function refreshShift() {
     message.value = "Стан ПРРО отримано від ДПС. Перевірка не змінює стан каси.";
   } catch (e) { error.value = e.message || "Помилка підписання або перевірки стану ПРРО."; message.value = ""; }
   finally { busy.value = false; widgetVisible.value = false; }
+}
+
+async function inspectLastCheck() {
+  if (busy.value) return;
+  error.value = "";
+  message.value = "";
+  lastCheck.value = null;
+  const number = fiscalNumber.value.trim();
+  const selectedBranch = branchNo.value.trim();
+  if (!/^\d{1,10}$/.test(selectedBranch) || Number(selectedBranch) <= 0) {
+    error.value = "Вкажіть коректний номер філії для перевірки ПРРО.";
+    return;
+  }
+  if (!/^\d{1,32}$/.test(number)) {
+    error.value = "Введіть фіскальний номер ПРРО: лише цифри.";
+    return;
+  }
+  busy.value = true;
+  try {
+    message.value = "Завантажуємо віджет ІІТ…";
+    const widget = await getWidget();
+    message.value = "Зчитайте КЕП касира та підтвердьте підписання номера ПРРО.";
+    await widget.ReadPrivateKey();
+    const signatureBase64 = await widget.SignData(
+      number,
+      false,
+      true,
+      window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof signatureBase64 !== "string" || !signatureBase64.length) {
+      throw new Error("Віджет ІІТ не повернув підпис у Base64.");
+    }
+    widgetVisible.value = false;
+    message.value = "Підпис отримано. Виконуємо lastChk у ДПС…";
+    lastCheck.value = await inspectLastPrroCheck(
+      props.session.token, selectedBranch, number, signatureBase64,
+    );
+    message.value = "Отримано відповідь lastChk. Документ не змінювався та не надсилався.";
+  } catch (e) {
+    error.value = e.message || "Помилка підписання або запиту lastChk.";
+    message.value = "";
+  } finally {
+    busy.value = false;
+    widgetVisible.value = false;
+  }
 }
 
 async function inspect() {
@@ -154,6 +200,7 @@ onBeforeUnmount(() => {
       <div class="shift-actions">
         <button type="button" disabled title="Очікує перевірки формату підпису для check_sign">Відкрити зміну</button>
         <button type="button" class="secondary" :disabled="busy" @click="refreshShift">{{ busy ? "Перевіряємо…" : "Підписати та оновити стан" }}</button>
+        <button type="button" class="secondary" :disabled="busy" @click="inspectLastCheck">{{ busy ? "Виконуємо…" : "Перевірити останній чек (lastChk)" }}</button>
       </div>
       <p v-if="message" role="status" class="prro-message">{{ message }}</p>
       <p v-if="error" role="alert" class="prro-error">{{ error }}</p>
@@ -168,6 +215,14 @@ onBeforeUnmount(() => {
         <div><dt>Наступний локальний номер</dt><dd>{{ shiftStatus.nextLocalNumber }}</dd></div>
         <div><dt>Останній підписувач</dt><dd>{{ shiftStatus.lastSigner || "—" }}</dd></div>
         <div><dt>Повідомлення ДПС</dt><dd>{{ shiftStatus.dpsMessage || "—" }}</dd></div>
+      </dl>
+      <dl v-if="lastCheck" class="prro-result shift-result">
+        <div><dt>Відповідь lastChk</dt><dd>{{ lastCheck.responseStatus }} ({{ lastCheck.responseCode }})</dd></div>
+        <div><dt>ID документа ДПС</dt><dd>{{ lastCheck.fiscalDocumentId || "—" }}</dd></div>
+        <div><dt>Розмір data_sign</dt><dd>{{ lastCheck.dataSignLength }} байт</dd></div>
+        <div><dt>Починається з XML</dt><dd>{{ lastCheck.dataSignStartsWithXml ? "Так" : "Ні" }}</dd></div>
+        <div><dt>SHA-256 data_sign</dt><dd>{{ lastCheck.dataSignSha256 || "—" }}</dd></div>
+        <div><dt>Повідомлення ДПС</dt><dd>{{ lastCheck.dpsMessage || "—" }}</dd></div>
       </dl>
       <p v-if="shiftStatus?.state === 'RECONCILIATION_REQUIRED'" class="integration-note" role="alert">Стан у ДПС не збігається з локальним станом Baget. Не відкривайте нову зміну та не фіскалізуйте чеки, доки операцію не буде звірено.</p>
     </section>
