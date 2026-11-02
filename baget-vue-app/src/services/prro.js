@@ -104,3 +104,17 @@ export function getPrroAudit(token) {
 export function getPrroDeviceForBranch(token, branchNo) {
   return adminRequest(token, `/api/prro/branches/${Number(branchNo)}/device`);
 }
+
+export function preparePrroShiftOpen(token, request) {
+  return adminRequest(token, "/api/prro/shift/open/prepare", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export function submitPrroShiftOpen(token, request) {
+  return adminRequest(token, "/api/prro/shift/open/submit", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
