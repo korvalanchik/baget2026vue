@@ -1,0 +1,30 @@
+name: Frontend validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "baget-vue-app/**"
+      - ".github/workflows/frontend-validation.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "baget-vue-app/**"
+      - ".github/workflows/frontend-validation.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: baget-vue-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: baget-vue-app/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
