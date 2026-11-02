@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro } from "../services/prro.js";
+import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
 const canRunDiagnostics = computed(() => props.session.roles?.some(role => ["ROLE_ADMIN", "ROLE_SENIOR_CASHIER"].includes(role)) === true);
@@ -18,6 +18,9 @@ const result = ref(null);
 const fixtureXml = ref("");
 const fixtureKind = ref("");
 const fixtureResult = ref(null);
+const selectedSignerKeyId = ref("");
+const shiftOpenResult = ref(null);
+const shiftOpenIdempotencyKey = ref("");
 const shiftStateLabel = computed(() => ({ OPEN: "Зміна відкрита", CLOSED: "Зміна закрита", DPS_ERROR: "Помилка відповіді ДПС", RECONCILIATION_REQUIRED: "Потрібна звірка стану" }[shiftStatus.value?.state] || "Стан не перевірено"));
 const widgetVisible = ref(false);
 let endUser = null;
@@ -98,6 +101,7 @@ async function refreshShift() {
     widgetVisible.value = false;
     message.value = "Підпис отримано. Перевіряємо стан каси у ДПС…";
     shiftStatus.value = await getPrroShiftStatus(props.session.token, selectedBranch, number, signatureBase64);
+    if (shiftStatus.value.state !== "CLOSED") selectedSignerKeyId.value = "";
     message.value = "Стан ПРРО отримано від ДПС. Перевірка не змінює стан каси.";
   } catch (e) { error.value = e.message || "Помилка підписання або перевірки стану ПРРО."; message.value = ""; }
   finally { busy.value = false; widgetVisible.value = false; }
@@ -183,6 +187,86 @@ async function inspect() {
     message.value = "ДПС відповіла успішно. Це лише діагностика ПРРО — чек не фіскалізовано.";
   } catch (e) {
     error.value = e.message || "Помилка підписання або запиту до ДПС.";
+    message.value = "";
+  } finally {
+    busy.value = false;
+    widgetVisible.value = false;
+  }
+}
+
+async function openShiftOnTest() {
+  if (busy.value) return;
+  error.value = "";
+  message.value = "";
+  shiftOpenResult.value = null;
+
+  const selectedBranch = branchNo.value.trim();
+  const number = fiscalNumber.value.trim();
+  const signerKeyId = selectedSignerKeyId.value.trim();
+  if (shiftStatus.value?.state !== "CLOSED" || shiftStatus.value?.environment !== "TEST") {
+    error.value = "Спочатку перевірте, що вибраний TEST-ПРРО має закриту зміну.";
+    return;
+  }
+  if (!signerKeyId) {
+    error.value = "Спочатку отримайте список операторів через адміністративну діагностику та виберіть сертифікат касира.";
+    return;
+  }
+
+  busy.value = true;
+  try {
+    message.value = "Завантажуємо віджет ІІТ…";
+    const widget = await getWidget();
+    message.value = "Зчитайте КЕП касира. Спочатку підпишемо фіскальний номер для підготовки XML.";
+    await widget.ReadPrivateKey();
+    const rroSignatureBase64 = await widget.SignData(
+      number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof rroSignatureBase64 !== "string" || !rroSignatureBase64.length) {
+      throw new Error("ІIT не повернув підпис фіскального номера.");
+    }
+
+    if (!shiftOpenIdempotencyKey.value) {
+      shiftOpenIdempotencyKey.value = window.crypto?.randomUUID
+        ? window.crypto.randomUUID()
+        : "shift-open-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+    }
+    message.value = "Baget готує XML SERVICECHK та перевіряє попередній документ у ДПС…";
+    const prepared = await preparePrroShiftOpen(props.session.token, {
+      branchNo: Number(selectedBranch),
+      fiscalNumber: number,
+      rroSignatureBase64,
+      signerKeyId,
+      idempotencyKey: shiftOpenIdempotencyKey.value,
+    });
+
+    const binary = window.atob(prepared.signingInputBase64);
+    const xmlBytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+    const xml = new TextDecoder("windows-1251").decode(xmlBytes);
+    message.value = "XML отримано. Підтвердьте його підписання у віджеті IIT…";
+    const signedPayloadBase64 = await widget.SignData(
+      xml, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof signedPayloadBase64 !== "string" || !signedPayloadBase64.length) {
+      throw new Error("IIT не повернув підписаний XML у Base64.");
+    }
+
+    widgetVisible.value = false;
+    message.value = "Підпис отримано. Надсилаємо SERVICECHK на тестовий сервер ДПС…";
+    shiftOpenResult.value = await submitPrroShiftOpen(props.session.token, {
+      operationId: prepared.operationId,
+      signerKeyId,
+      signedPayloadBase64,
+    });
+    if (shiftOpenResult.value.status === "FISCALIZED") {
+      message.value = "Тестовий сервер ДПС прийняв SERVICECHK. Перевірте відповідь і стан ПРРО.";
+    } else if (shiftOpenResult.value.status === "REJECTED") {
+      message.value = "ДПС відхилила SERVICECHK. Нижче наведено код і повідомлення відповіді.";
+      shiftOpenIdempotencyKey.value = "";
+    } else {
+      message.value = "Результат надсилання неоднозначний. Повторно не надсилайте — спочатку звіримо стан.";
+    }
+  } catch (e) {
+    error.value = e.message || "Не вдалося підготувати, підписати або надіслати SERVICECHK.";
     message.value = "";
   } finally {
     busy.value = false;
@@ -319,9 +403,18 @@ onBeforeUnmount(() => {
         </select>
         <small v-if="deviceName">{{ deviceName }} · ФН {{ fiscalNumber }}</small>
       </div>
-      <p class="prro-note">Для перевірки стану фіскальний номер ПРРО підписується через вбудований IIT SignWidget. Приватний ключ залишається на комп’ютері касира.</p>
+      <p class="prro-note">Для перевірки стану фіскальний номер ПРРО підписується через вбудований IIT SignWidget. Приватний ключ залишається на комп’ютері касира. Тестове відкриття доступне лише для TEST-ПРРО.</p>
+      <div v-if="canRunDiagnostics && result?.operators?.length" class="branch-field">
+        <label for="prro-signer-serial">Сертифікат касира, зареєстрований у ДПС</label>
+        <select id="prro-signer-serial" v-model="selectedSignerKeyId" :disabled="busy">
+          <option value="">Оберіть сертифікат</option>
+          <option v-for="operator in result.operators" :key="operator.serial" :value="operator.serial">
+            {{ operator.name || "Оператор" }} · {{ operator.serial }} · статус {{ operator.status }}
+          </option>
+        </select>
+      </div>
       <div class="shift-actions">
-        <button type="button" disabled title="Очікує перевірки формату підпису для check_sign">Відкрити зміну</button>
+        <button type="button" :disabled="busy || shiftStatus?.state !== 'CLOSED' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId" @click="openShiftOnTest">Відкрити зміну (тест)</button>
         <button type="button" class="secondary" :disabled="busy" @click="refreshShift">{{ busy ? "Перевіряємо…" : "Підписати та оновити стан" }}</button>
         <button type="button" class="secondary" :disabled="busy" @click="inspectLastCheck">{{ busy ? "Виконуємо…" : "Перевірити останній чек (lastChk)" }}</button>
       </div>
