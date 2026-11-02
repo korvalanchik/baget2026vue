@@ -73,6 +73,10 @@ async function loadDeviceForBranch() {
   deviceName.value = "";
   shiftStatus.value = null;
   lastCheck.value = null;
+  result.value = null;
+  selectedSignerKeyId.value = "";
+  shiftOpenResult.value = null;
+  shiftOpenIdempotencyKey.value = "";
   if (!selectedBranch) return;
   try {
     const device = await getPrroDeviceForBranch(props.session.token, selectedBranch);
