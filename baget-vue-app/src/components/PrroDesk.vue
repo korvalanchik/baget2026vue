@@ -527,7 +527,6 @@ onBeforeUnmount(() => {
       </div>
       <div class="shift-actions">
         <button type="button" :disabled="busy || shiftStatus?.state !== 'CLOSED' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId" @click="openShiftOnTest">Відкрити зміну (тест)</button>
-        <button type="button" class="secondary" :disabled="busy || shiftStatus?.state !== 'OPEN' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId" @click="closeShiftOnTest">Закрити зміну через ZREPORT (тест)</button>
         <button type="button" class="secondary" :disabled="busy" @click="refreshShift">{{ busy ? "Перевіряємо…" : "Підписати та оновити стан" }}</button>
         <button type="button" class="secondary" :disabled="busy" @click="inspectLastCheck">{{ busy ? "Виконуємо…" : "Перевірити останній чек (lastChk)" }}</button>
       </div>
