@@ -118,3 +118,17 @@ export function submitPrroShiftOpen(token, request) {
     body: JSON.stringify(request),
   });
 }
+
+export function preparePrroShiftClose(token, request) {
+  return adminRequest(token, "/api/prro/shift/close/prepare", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export function submitPrroShiftClose(token, request) {
+  return adminRequest(token, "/api/prro/shift/close/submit", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
