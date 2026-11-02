@@ -72,7 +72,7 @@ const session = ref(restoreSession());
 const activeSection = ref(
   session.value?.roles?.includes("ROLE_COURIER") && !session.value.roles.includes("ROLE_ADMIN")
     ? "samples"
-    : scannedProduct ? "scanning" : "home",
+    : session.value?.roles?.some(role => ["ROLE_CASHIER", "ROLE_SENIOR_CASHIER"].includes(role)) ? "prro" : scannedProduct ? "scanning" : "home",
 );
 const navigation = [
   { id: "home", icon: "⌂", label: "Мої завдання" },
@@ -101,10 +101,11 @@ const navigation = [
   { id: "prro", icon: "◎", label: "Каса / ПРРО" },
 ];
 const isAdmin = computed(() => session.value?.roles?.includes("ROLE_ADMIN") === true);
+const prroOnly = computed(() => !isAdmin.value && session.value?.roles?.some(role => ["ROLE_CASHIER", "ROLE_SENIOR_CASHIER"].includes(role)) === true);
 const allowedNavigation = computed(() => {
   const courierOnly = session.value?.roles?.includes("ROLE_COURIER") && !isAdmin.value;
   if (courierOnly) return navigation.filter((item) => item.id === "samples");
-  return navigation.filter((item) => item.id === "home" ? true : ["finance", "cash", "prro"].includes(item.id) ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access));
+  return navigation.filter((item) => item.id === "home" ? !prroOnly.value : item.id === "prro" ? (canAccess(session.value, "prro:operate") || canAcceptCustomerPayment(session.value)) : ["finance", "cash"].includes(item.id) ? canAcceptCustomerPayment(session.value) : ["settings", "owner-results"].includes(item.id) ? isAdmin.value : canAccess(session.value, item.access));
 });
 function completeLogin(newSession) {
   menuOpen.value = false;
@@ -112,7 +113,7 @@ function completeLogin(newSession) {
   taskContext.value = null;
   activeSection.value = newSession.roles?.includes("ROLE_COURIER") && !newSession.roles.includes("ROLE_ADMIN")
     ? "samples"
-    : scannedProduct ? "scanning" : "home";
+    : newSession.roles?.some(role => ["ROLE_CASHIER", "ROLE_SENIOR_CASHIER"].includes(role)) ? "prro" : scannedProduct ? "scanning" : "home";
 }
 function taskNavigate(target) {
   target = financeTarget(target);
@@ -201,7 +202,7 @@ function signOut() {
         <EstimateCalculator :session="session" />
       </section>
       <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
-      <DeskLayout v-else-if="activeSection === 'prro' && canAcceptCustomerPayment(session)" title="Каса / ПРРО" description="Відкриття зміни, фіскалізація чеків та закриття касової зміни."><PrroDesk :session="session" /></DeskLayout>
+      <DeskLayout v-else-if="activeSection === 'prro' && (canAccess(session, 'prro:operate') || canAcceptCustomerPayment(session))" title="Каса / ПРРО" description="Відкриття зміни, фіскалізація чеків та закриття касової зміни."><PrroDesk :session="session" /></DeskLayout>
       <FrameSamplesDesk v-else-if="activeSection === 'samples' && canAccess(session, 'samples:read')" :session="session" />
       <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" :initial-tab="taskContext?.tab" :initial-order-no="taskContext?.orderNo" />
       <DeskLayout v-else-if="activeSection === 'cash' && canAcceptCustomerPayment(session)" title="Каси та рахунки" description="Щоденна робота з коштами філій та центральної каси."><CashDesk :session="session" @open-purchase="taskNavigate({ section: 'finance', tab: 'purchases', receiptId: $event })" /></DeskLayout>

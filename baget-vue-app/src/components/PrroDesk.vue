@@ -1,10 +1,12 @@
 <script setup>
-import { computed, onBeforeUnmount, ref } from "vue";
-import { getPrroShiftStatus, inspectLastPrroCheck, inspectRro } from "../services/prro.js";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
-const isAdmin = computed(() => props.session.roles?.includes("ROLE_ADMIN") === true);
-const fiscalNumber = ref("4000318883");
+const canRunDiagnostics = computed(() => props.session.roles?.some(role => ["ROLE_ADMIN", "ROLE_SENIOR_CASHIER"].includes(role)) === true);
+const fiscalNumber = ref("");
+const branches = ref([]);
+const deviceName = ref("");
 const branchNo = ref(/^\d+$/.test(String(props.session.branch?.id ?? "")) ? String(props.session.branch.id) : "");
 const shiftStatus = ref(null);
 const lastCheck = ref(null);
@@ -47,6 +49,32 @@ async function getWidget() {
   // before sending the first command (the connector queues commands meanwhile).
   await new Promise((resolve) => window.setTimeout(resolve, 1200));
   return endUser;
+}
+
+async function loadBranches() {
+  try {
+    branches.value = await getPrroBranches(props.session.token);
+    if (!branchNo.value && branches.value.length) branchNo.value = String(branches.value[0].branchNo);
+    if (branchNo.value) await loadDeviceForBranch();
+  } catch (e) {
+    error.value = e.message || "Не вдалося завантажити доступні філії ПРРО.";
+  }
+}
+
+async function loadDeviceForBranch() {
+  const selectedBranch = branchNo.value.trim();
+  fiscalNumber.value = "";
+  deviceName.value = "";
+  shiftStatus.value = null;
+  lastCheck.value = null;
+  if (!selectedBranch) return;
+  try {
+    const device = await getPrroDeviceForBranch(props.session.token, selectedBranch);
+    fiscalNumber.value = device.fiscalNumber;
+    deviceName.value = device.displayName;
+  } catch (e) {
+    if (e.status !== 404) error.value = e.message || "Не вдалося завантажити налаштування каси.";
+  }
 }
 
 async function refreshShift() {
@@ -170,6 +198,8 @@ async function resetKey() {
   }
 }
 
+onMounted(loadBranches);
+
 onBeforeUnmount(() => {
   if (endUser) endUser.destroy();
 });
@@ -193,8 +223,12 @@ onBeforeUnmount(() => {
         <span class="status-pill status-unknown">{{ shiftStateLabel }}</span>
       </div>
       <div class="branch-field">
-        <label for="prro-branch-number">Номер філії</label>
-        <input id="prro-branch-number" v-model.trim="branchNo" inputmode="numeric" autocomplete="off" maxlength="10" :disabled="busy" />
+        <label for="prro-branch-number">Філія / каса</label>
+        <select id="prro-branch-number" v-model="branchNo" :disabled="busy" @change="loadDeviceForBranch">
+          <option value="" disabled>Оберіть філію</option>
+          <option v-for="branch in branches" :key="branch.branchNo" :value="String(branch.branchNo)">{{ branch.branchNo }} · {{ branch.name }}</option>
+        </select>
+        <small v-if="deviceName">{{ deviceName }} · ФН {{ fiscalNumber }}</small>
       </div>
       <p class="prro-note">Для перевірки стану підписується фіскальний номер ПРРО через IIT Agent. Приватний ключ залишається на комп’ютері касира.</p>
       <div class="shift-actions">
@@ -245,7 +279,7 @@ onBeforeUnmount(() => {
       </article>
     </section>
 
-    <details v-if="isAdmin" class="diagnostics">
+    <details v-if="canRunDiagnostics" class="diagnostics">
       <summary>Адміністративна діагностика ДПС</summary>
       <div class="prro-panel">
       <label for="rro-fiscal-number">Фіскальний номер ПРРО</label>
@@ -309,7 +343,8 @@ onBeforeUnmount(() => {
 .status-unknown { color: #596579; background: #eef1f5; }
 .branch-field { margin: 12px 0; }
 .branch-field label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
-.branch-field input { width: min(100%, 220px); min-height: 40px; border: 1px solid #b9c4d0; border-radius: 8px; padding: 8px 10px; font: inherit; }
+.branch-field select { width: min(100%, 360px); min-height: 40px; border: 1px solid #b9c4d0; border-radius: 8px; padding: 8px 10px; font: inherit; display:block; }
+.branch-field small { display:block; margin-top:6px; color:#617580; }
 .shift-result { margin-top: 16px; }
 .shift-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .integration-note { margin: 14px 0 0; padding: 10px 12px; border-left: 3px solid #c58b2a; background: #fff8e9; color: #70521c; font-size: 13px; line-height: 1.5; }

@@ -12,5 +12,5 @@ export async function customerPayments(token, path, payload) {
 }
 
 export function canAcceptCustomerPayment(session) {
-  return Boolean(session?.roles?.some(role => ['ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_SELLER', 'ROLE_LEVEL2', 'ROLE_COUNTER', 'ROLE_ACCOUNTANT', 'ROLE_BOOKKEEPER'].includes(role)))
+  return Boolean(session?.roles?.some(role => ['ROLE_ADMIN', 'ROLE_MANAGER', 'ROLE_SELLER', 'ROLE_LEVEL2', 'ROLE_COUNTER', 'ROLE_ACCOUNTANT', 'ROLE_BOOKKEEPER', 'ROLE_CASHIER'].includes(role)))
 }
