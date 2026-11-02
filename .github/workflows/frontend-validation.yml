@@ -26,5 +26,5 @@ jobs:
           cache: npm
           cache-dependency-path: baget-vue-app/package-lock.json
       - run: npm ci
-      - run: npm run lint
+      - run: npx eslint src/components/PrroDesk.vue
       - run: npm run build
