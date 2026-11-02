@@ -15,6 +15,9 @@ const busy = ref(false);
 const error = ref("");
 const message = ref("");
 const result = ref(null);
+const fixtureXml = ref("");
+const fixtureKind = ref("");
+const fixtureResult = ref(null);
 const shiftStateLabel = computed(() => ({ OPEN: "Зміна відкрита", CLOSED: "Зміна закрита", DPS_ERROR: "Помилка відповіді ДПС", RECONCILIATION_REQUIRED: "Потрібна звірка стану" }[shiftStatus.value?.state] || "Стан не перевірено"));
 const widgetVisible = ref(false);
 let endUser = null;
@@ -198,6 +201,92 @@ async function resetKey() {
   }
 }
 
+function loadShiftOpenFixture() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  const timestamp = [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+    pad(now.getSeconds()),
+  ].join("");
+
+  fixtureKind.value = "SHIFT_OPEN";
+  fixtureResult.value = null;
+  fixtureXml.value =
+    '<?xml version="1.0" encoding="windows-1251"?>' +
+    '<RQ V="1">' +
+    '<DAT FN="4538765845" TN="ПН 345612052809" ZN="" DI="238" V="1">' +
+    '<C T="108"></C><TS>' + timestamp + '</TS></DAT>' +
+    '<MAC ID=""></MAC></RQ>';
+  error.value = "";
+  message.value = "Завантажено приклад відкриття зміни з опису API ДПС від 01.09.2021. Це тестовий документ; надсилання вимкнено.";
+}
+
+function loadSaleCheckFixture() {
+  fixtureKind.value = "SALE_CHECK";
+  fixtureResult.value = null;
+  fixtureXml.value =
+    '<DAT FN="4538765845" TN="ПН 345612052809" ZN="АА57506761" DI="238" V="1">' +
+    '<C T="0">' +
+    '<P N="1" C="0760557812166" NM="T.sonic 615" SM="800" TX="1"></P>' +
+    '<M N="2" T="0" NM="ГОТІВКА" SM="800"></M>' +
+    '<E N="3" NO="19" SM="800" SE="667" FN="4538765845" TS="20110801112601" ' +
+    'TX="1" TXPR="20.00" TXSM="133" DTPR="0.00" DTSM="0" TXTY="0" TXAL="0" CS="1"></E>' +
+    '</C><TS>20110801112601</TS></DAT>';
+  error.value = "";
+  message.value = "Завантажено приклад чека продажу з протоколу 2.2.3, редакція 3.1. Це DAT-фрагмент без MAC/ланцюжка попереднього документа; надсилання вимкнено.";
+}
+
+async function signFixture() {
+  if (busy.value || !fixtureXml.value.trim()) return;
+  error.value = "";
+  fixtureResult.value = null;
+  busy.value = true;
+  try {
+    message.value = "Завантажуємо наявний IIT SignWidget…";
+    const widget = await getWidget();
+    message.value = "Зчитайте тестовий КЕП касира у віджеті ІІТ та підтвердьте підписання XML.";
+    await widget.ReadPrivateKey();
+    const signatureBase64 = await widget.SignData(
+      fixtureXml.value,
+      false,
+      true,
+      window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof signatureBase64 !== "string" || !signatureBase64.length) {
+      throw new Error("Віджет ІІТ не повернув підпис у Base64.");
+    }
+
+    const binary = window.atob(signatureBase64);
+    const signatureBytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    let signatureSha256 = null;
+    if (window.crypto?.subtle) {
+      const digest = await window.crypto.subtle.digest("SHA-256", signatureBytes);
+      signatureSha256 = Array.from(new Uint8Array(digest))
+        .map((value) => value.toString(16).padStart(2, "0"))
+        .join("");
+    }
+
+    fixtureResult.value = {
+      kind: fixtureKind.value,
+      signatureBytesLength: signatureBytes.length,
+      signatureSha256,
+      signatureBase64Prefix: signatureBase64.slice(0, 48),
+    };
+    widgetVisible.value = false;
+    message.value = "IIT SignWidget підписав тестовий XML. Підпис не передавався до ДПС.";
+  } catch (e) {
+    error.value = e.message || "Не вдалося підписати тестовий XML через IIT SignWidget.";
+    message.value = "";
+  } finally {
+    busy.value = false;
+    widgetVisible.value = false;
+  }
+}
+
 onMounted(loadBranches);
 
 onBeforeUnmount(() => {
@@ -230,7 +319,7 @@ onBeforeUnmount(() => {
         </select>
         <small v-if="deviceName">{{ deviceName }} · ФН {{ fiscalNumber }}</small>
       </div>
-      <p class="prro-note">Для перевірки стану підписується фіскальний номер ПРРО через IIT Agent. Приватний ключ залишається на комп’ютері касира.</p>
+      <p class="prro-note">Для перевірки стану фіскальний номер ПРРО підписується через вбудований IIT SignWidget. Приватний ключ залишається на комп’ютері касира.</p>
       <div class="shift-actions">
         <button type="button" disabled title="Очікує перевірки формату підпису для check_sign">Відкрити зміну</button>
         <button type="button" class="secondary" :disabled="busy" @click="refreshShift">{{ busy ? "Перевіряємо…" : "Підписати та оновити стан" }}</button>
@@ -323,6 +412,39 @@ onBeforeUnmount(() => {
       </ul>
     </div>
 
+      <div class="prro-panel fixture-panel">
+        <h3>Тестові приклади XML · IIT SignWidget</h3>
+        <p class="prro-note">
+          Приклади взято з документів ДПС: відкриття зміни — API від 01.09.2021;
+          продаж — протокол 2.2.3, редакція 3.1 від 18.02.2025.
+          Це діагностика підписання, а не готова команда фіскалізації.
+        </p>
+        <div class="prro-actions">
+          <button type="button" class="secondary" :disabled="busy" @click="loadShiftOpenFixture">
+            Приклад відкриття зміни (SERVICECHK)
+          </button>
+          <button type="button" class="secondary" :disabled="busy" @click="loadSaleCheckFixture">
+            Приклад продажу (CHK)
+          </button>
+          <button type="button" :disabled="busy || !fixtureXml" @click="signFixture">
+            {{ busy ? "Підписуємо…" : "Підписати XML через IIT" }}
+          </button>
+        </div>
+        <p v-if="fixtureKind === 'SALE_CHECK'" class="prro-note">
+          У прикладі продажу показано лише DAT. MAC і точний ланцюжок попереднього документа
+          навмисно не підставляються навмання.
+        </p>
+        <textarea v-if="fixtureXml" v-model="fixtureXml" class="fixture-xml"
+          rows="12" spellcheck="false" :disabled="busy"></textarea>
+        <dl v-if="fixtureResult" class="prro-result">
+          <div><dt>Тип тесту</dt><dd>{{ fixtureResult.kind }}</dd></div>
+          <div><dt>Розмір підпису</dt><dd>{{ fixtureResult.signatureBytesLength }} байт</dd></div>
+          <div><dt>SHA-256 підпису</dt><dd>{{ fixtureResult.signatureSha256 || "WebCrypto недоступний" }}</dd></div>
+          <div><dt>Початок Base64</dt><dd>{{ fixtureResult.signatureBase64Prefix }}…</dd></div>
+        </dl>
+        <p class="prro-note">Приватний ключ залишається у віджеті. Підпис зберігається лише в пам’яті цієї сторінки та не надсилається на backend або ДПС.</p>
+      </div>
+
     </details>
 
     <div id="iit-widget-overlay" class="iit-widget-overlay" :class="{ visible: widgetVisible }">
@@ -371,6 +493,9 @@ onBeforeUnmount(() => {
 .prro-result div { min-width: 0; }
 .prro-result dt { color: #657184; font-size: 13px; }
 .prro-result dd { margin: 4px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.fixture-panel { display: grid; gap: 12px; }
+.fixture-panel h3 { margin-bottom: 0; }
+.fixture-xml { box-sizing: border-box; width: 100%; min-height: 220px; resize: vertical; border: 1px solid #b9c4d0; border-radius: 8px; padding: 12px; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; }
 .prro-operators { padding-left: 20px; }
 .iit-widget-overlay { position: fixed; inset: 0; z-index: 2000; display: none; align-items: center; justify-content: center; padding: 16px; background: #0c1728a8; }
 .iit-widget-overlay.visible { display: flex; }
