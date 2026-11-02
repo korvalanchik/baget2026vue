@@ -440,6 +440,14 @@ onBeforeUnmount(() => {
         <div><dt>SHA-256 data_sign</dt><dd>{{ lastCheck.dataSignSha256 || "—" }}</dd></div>
         <div><dt>Повідомлення ДПС</dt><dd>{{ lastCheck.dpsMessage || "—" }}</dd></div>
       </dl>
+      <dl v-if="shiftOpenResult" class="prro-result shift-result">
+        <div><dt>Операція</dt><dd>{{ shiftOpenResult.operationId }}</dd></div>
+        <div><dt>Стан</dt><dd>{{ shiftOpenResult.status }}</dd></div>
+        <div><dt>Код ДПС</dt><dd>{{ shiftOpenResult.responseCode ?? "—" }}</dd></div>
+        <div><dt>ID документа ДПС</dt><dd>{{ shiftOpenResult.fiscalDocumentId || "—" }}</dd></div>
+        <div><dt>SHA-256 підпису</dt><dd>{{ shiftOpenResult.signedPayloadSha256 || "—" }}</dd></div>
+        <div><dt>Повідомлення ДПС</dt><dd>{{ shiftOpenResult.responseMessage || "—" }}</dd></div>
+      </dl>
       <p v-if="shiftStatus?.state === 'RECONCILIATION_REQUIRED'" class="integration-note" role="alert">Стан у ДПС не збігається з локальним станом Baget. Не відкривайте нову зміну та не фіскалізуйте чеки, доки операцію не буде звірено.</p>
     </section>
 
