@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen } from "../services/prro.js";
+import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, preparePrroShiftClose, submitPrroShiftClose } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
 const canRunDiagnostics = computed(() => props.session.roles?.some(role => ["ROLE_ADMIN", "ROLE_SENIOR_CASHIER"].includes(role)) === true);
@@ -21,6 +21,8 @@ const fixtureResult = ref(null);
 const selectedSignerKeyId = ref("");
 const shiftOpenResult = ref(null);
 const shiftOpenIdempotencyKey = ref("");
+const shiftCloseResult = ref(null);
+const shiftCloseIdempotencyKey = ref("");
 const shiftStateLabel = computed(() => ({ OPEN: "Зміна відкрита", CLOSED: "Зміна закрита", DPS_ERROR: "Помилка відповіді ДПС", RECONCILIATION_REQUIRED: "Потрібна звірка стану" }[shiftStatus.value?.state] || "Стан не перевірено"));
 const widgetVisible = ref(false);
 let endUser = null;
@@ -77,6 +79,8 @@ async function loadDeviceForBranch() {
   selectedSignerKeyId.value = "";
   shiftOpenResult.value = null;
   shiftOpenIdempotencyKey.value = "";
+  shiftCloseResult.value = null;
+  shiftCloseIdempotencyKey.value = "";
   if (!selectedBranch) return;
   try {
     const device = await getPrroDeviceForBranch(props.session.token, selectedBranch);
@@ -105,7 +109,12 @@ async function refreshShift() {
     widgetVisible.value = false;
     message.value = "Підпис отримано. Перевіряємо стан каси у ДПС…";
     shiftStatus.value = await getPrroShiftStatus(props.session.token, selectedBranch, number, signatureBase64);
-    if (shiftStatus.value.state !== "CLOSED") selectedSignerKeyId.value = "";
+    if (shiftStatus.value.state === "CLOSED") {
+      selectedSignerKeyId.value = "";
+    } else if (shiftStatus.value.state === "OPEN" && shiftStatus.value.lastSigner
+      && result.value?.operators?.some(operator => operator.serial === shiftStatus.value.lastSigner)) {
+      selectedSignerKeyId.value = shiftStatus.value.lastSigner;
+    }
     message.value = "Стан ПРРО отримано від ДПС. Перевірка не змінює стан каси.";
   } catch (e) { error.value = e.message || "Помилка підписання або перевірки стану ПРРО."; message.value = ""; }
   finally { busy.value = false; widgetVisible.value = false; }
@@ -271,6 +280,108 @@ async function openShiftOnTest() {
     }
   } catch (e) {
     error.value = e.message || "Не вдалося підготувати, підписати або надіслати SERVICECHK.";
+    message.value = "";
+  } finally {
+    busy.value = false;
+    widgetVisible.value = false;
+  }
+}
+
+
+async function closeShiftOnTest() {
+  if (busy.value) return;
+  error.value = "";
+  message.value = "";
+  shiftCloseResult.value = null;
+
+  const selectedBranch = branchNo.value.trim();
+  const number = fiscalNumber.value.trim();
+  const signerKeyId = selectedSignerKeyId.value.trim();
+  if (shiftStatus.value?.state !== "OPEN" || shiftStatus.value?.environment !== "TEST") {
+    error.value = "Спочатку перевірте, що вибраний TEST-ПРРО має відкриту зміну.";
+    return;
+  }
+  if (!signerKeyId) {
+    error.value = "Оберіть сертифікат касира, яким було відкрито цю зміну.";
+    return;
+  }
+
+  busy.value = true;
+  try {
+    message.value = "Завантажуємо віджет ІІТ…";
+    const widget = await getWidget();
+    message.value = "Зчитайте КЕП касира. Підпишемо фіскальний номер для підготовки Z-звіту.";
+    await widget.ReadPrivateKey();
+    const rroSignatureBase64 = await widget.SignData(
+      number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof rroSignatureBase64 !== "string" || !rroSignatureBase64.length) {
+      throw new Error("ІIT не повернув підпис фіскального номера.");
+    }
+
+    if (!shiftCloseIdempotencyKey.value) {
+      shiftCloseIdempotencyKey.value = window.crypto?.randomUUID
+        ? window.crypto.randomUUID()
+        : "shift-close-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+    }
+    message.value = "Baget перевіряє стан зміни, lastChk та готує ZREPORT…";
+    const prepared = await preparePrroShiftClose(props.session.token, {
+      branchNo: Number(selectedBranch),
+      fiscalNumber: number,
+      rroSignatureBase64,
+      signerKeyId,
+      idempotencyKey: shiftCloseIdempotencyKey.value,
+    });
+
+    const binary = window.atob(prepared.signingInputBase64);
+    const xmlBytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+    const xml = new TextDecoder("windows-1251").decode(xmlBytes);
+    message.value = "ZREPORT сформовано. Підтвердьте підписання XML у віджеті IIT…";
+    const signedPayloadBase64 = await widget.SignData(
+      xml, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof signedPayloadBase64 !== "string" || !signedPayloadBase64.length) {
+      throw new Error("IIT не повернув підписаний ZREPORT у Base64.");
+    }
+
+    widgetVisible.value = false;
+    message.value = "Підпис отримано. Надсилаємо ZREPORT на тестовий сервер ДПС…";
+    shiftCloseResult.value = await submitPrroShiftClose(props.session.token, {
+      operationId: prepared.operationId,
+      signerKeyId,
+      signedPayloadBase64,
+    });
+
+    if (shiftCloseResult.value.status === "FISCALIZED") {
+      // A new shift must use new idempotency keys for both open and close operations.
+      shiftOpenIdempotencyKey.value = "";
+      shiftCloseIdempotencyKey.value = "";
+      message.value = "ZREPORT прийнято. Перевіряємо statusRro та lastChk у ДПС…";
+      try {
+        const [updatedStatus, updatedLastCheck] = await Promise.all([
+          getPrroShiftStatus(props.session.token, selectedBranch, number, rroSignatureBase64),
+          inspectLastPrroCheck(props.session.token, selectedBranch, number, rroSignatureBase64),
+        ]);
+        shiftStatus.value = updatedStatus;
+        lastCheck.value = updatedLastCheck;
+        if (updatedStatus.state === "CLOSED"
+          && updatedLastCheck.dataSignSha256 === shiftCloseResult.value.signedPayloadSha256) {
+          message.value = "ДПС підтвердила закриття зміни. SHA-256 lastChk збігається з підписаним ZREPORT.";
+          selectedSignerKeyId.value = "";
+        } else {
+          message.value = "ZREPORT фіскалізовано, але контрольна звірка statusRro/lastChk потребує уваги. Не відкривайте наступну зміну до звірки.";
+        }
+      } catch (verificationError) {
+        message.value = "ZREPORT фіскалізовано. Не вдалося автоматично завершити контрольну перевірку: "
+          + (verificationError.message || "невідома помилка");
+      }
+    } else if (shiftCloseResult.value.status === "REJECTED") {
+      message.value = "ДПС відхилила ZREPORT. Зміна залишається відкритою; не повторюйте надсилання без аналізу відповіді.";
+    } else {
+      message.value = "Результат надсилання неоднозначний. Не надсилайте ZREPORT повторно — спочатку звіримо statusRro та lastChk.";
+    }
+  } catch (e) {
+    error.value = e.message || "Не вдалося підготувати, підписати або надіслати ZREPORT.";
     message.value = "";
   } finally {
     busy.value = false;
@@ -452,6 +563,14 @@ onBeforeUnmount(() => {
         <div><dt>SHA-256 підпису</dt><dd>{{ shiftOpenResult.signedPayloadSha256 || "—" }}</dd></div>
         <div><dt>Повідомлення ДПС</dt><dd>{{ shiftOpenResult.responseMessage || "—" }}</dd></div>
       </dl>
+      <dl v-if="shiftCloseResult" class="prro-result shift-result">
+        <div><dt>Операція закриття</dt><dd>{{ shiftCloseResult.operationId }}</dd></div>
+        <div><dt>Стан</dt><dd>{{ shiftCloseResult.status }}</dd></div>
+        <div><dt>Код ДПС</dt><dd>{{ shiftCloseResult.responseCode ?? "—" }}</dd></div>
+        <div><dt>ID документа ДПС</dt><dd>{{ shiftCloseResult.fiscalDocumentId || "—" }}</dd></div>
+        <div><dt>SHA-256 підписаного ZREPORT</dt><dd>{{ shiftCloseResult.signedPayloadSha256 || "—" }}</dd></div>
+        <div><dt>Повідомлення ДПС</dt><dd>{{ shiftCloseResult.responseMessage || "—" }}</dd></div>
+      </dl>
       <p v-if="shiftStatus?.state === 'RECONCILIATION_REQUIRED'" class="integration-note" role="alert">Стан у ДПС не збігається з локальним станом Baget. Не відкривайте нову зміну та не фіскалізуйте чеки, доки операцію не буде звірено.</p>
     </section>
 
@@ -464,7 +583,9 @@ onBeforeUnmount(() => {
       <article class="prro-panel operation-card">
         <h3>Закриття зміни</h3>
         <p>Формування Z-звіту та закриття активної зміни ПРРО.</p>
-        <button type="button" class="secondary" disabled>Закрити зміну</button>
+        <button type="button" class="secondary"
+          :disabled="busy || shiftStatus?.state !== 'OPEN' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId"
+          @click="closeShiftOnTest">Закрити зміну (TEST)</button>
       </article>
       <article class="prro-panel operation-card">
         <h3>Історія операцій</h3>
