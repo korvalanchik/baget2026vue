@@ -319,7 +319,7 @@ onBeforeUnmount(() => {
         </select>
         <small v-if="deviceName">{{ deviceName }} · ФН {{ fiscalNumber }}</small>
       </div>
-      <p class="prro-note">Для перевірки стану підписується фіскальний номер ПРРО через IIT Agent. Приватний ключ залишається на комп’ютері касира.</p>
+      <p class="prro-note">Для перевірки стану фіскальний номер ПРРО підписується через вбудований IIT SignWidget. Приватний ключ залишається на комп’ютері касира.</p>
       <div class="shift-actions">
         <button type="button" disabled title="Очікує перевірки формату підпису для check_sign">Відкрити зміну</button>
         <button type="button" class="secondary" :disabled="busy" @click="refreshShift">{{ busy ? "Перевіряємо…" : "Підписати та оновити стан" }}</button>
