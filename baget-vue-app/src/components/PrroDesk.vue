@@ -353,6 +353,9 @@ async function closeShiftOnTest() {
     });
 
     if (shiftCloseResult.value.status === "FISCALIZED") {
+      // A new shift must use new idempotency keys for both open and close operations.
+      shiftOpenIdempotencyKey.value = "";
+      shiftCloseIdempotencyKey.value = "";
       message.value = "ZREPORT прийнято. Перевіряємо statusRro та lastChk у ДПС…";
       try {
         const [updatedStatus, updatedLastCheck] = await Promise.all([
