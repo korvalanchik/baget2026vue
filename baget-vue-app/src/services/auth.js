@@ -48,23 +48,27 @@ const accountantRoles = ["ROLE_ACCOUNTANT", "ROLE_BOOKKEEPER", "ROLE_COUNTER"];
 function permissionsFor(roles) {
   // Administrator access takes precedence over all additional roles.
   if (roles.includes("ROLE_ADMIN")) return adminPermissions;
-  if (roles.includes("ROLE_SENIOR_CASHIER")) return ["prro:operate", "prro:diagnostics"];
-  if (roles.includes("ROLE_CASHIER")) return ["prro:operate"];
 
   // A courier is deliberately restricted to the sample desk, even if another
   // non-admin role was assigned accidentally.
   if (roles.includes("ROLE_COURIER")) return ["samples:read", "samples:manage"];
 
-  // Інші ролі зберігають чинну модель прав. Сканування не прив'язане до прайсу
-  // чи конкретної філії.
-  const permissions = ["scanning:read"];
+  // Cashier permissions are additive: assigning a cashier role must not erase
+  // the permissions granted by the user's other operational roles.
+  const hasOnlyCashierRoles = roles.every(
+    (role) => ["ROLE_CASHIER", "ROLE_SENIOR_CASHIER"].includes(role),
+  );
+  const permissions = hasOnlyCashierRoles ? [] : ["scanning:read"];
   if (roles.some((role) => branchOrderRoles.includes(role)))
     permissions.push("orders:create", "orders:read", "customers:read", "customers:crm:read");
   if (roles.includes("ROLE_FOREMAN")) permissions.push("workshop:read");
   if (roles.some(role => ["ROLE_FOREMAN", "ROLE_WAREHOUSE"].includes(role))) permissions.push("materials:read");
   if (roles.some((role) => accountantRoles.includes(role)))
     permissions.push("finance:read", "customers:finance:read", "customers:crm:read");
-  return permissions;
+  if (roles.includes("ROLE_CASHIER")) permissions.push("prro:operate");
+  if (roles.includes("ROLE_SENIOR_CASHIER"))
+    permissions.push("prro:operate", "prro:diagnostics");
+  return [...new Set(permissions)];
 }
 async function responseData(response) {
   if (response.ok) return response.json();
