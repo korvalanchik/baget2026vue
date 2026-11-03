@@ -254,7 +254,7 @@ async function openShiftOnTest() {
 
     const binary = window.atob(prepared.signingInputBase64);
     const xmlBytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-    const xml = new TextDecoder("windows-1251").decode(xmlBytes);
+    const xml = new TextDecoder("utf-8").decode(xmlBytes);
     message.value = "XML отримано. Підтвердьте його підписання у віджеті IIT…";
     const signedPayloadBase64 = await widget.SignData(
       xml, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
@@ -335,7 +335,7 @@ async function closeShiftOnTest() {
 
     const binary = window.atob(prepared.signingInputBase64);
     const xmlBytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-    const xml = new TextDecoder("windows-1251").decode(xmlBytes);
+    const xml = new TextDecoder("utf-8").decode(xmlBytes);
     message.value = "ZREPORT сформовано. Підтвердьте підписання XML у віджеті IIT…";
     const signedPayloadBase64 = await widget.SignData(
       xml, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
