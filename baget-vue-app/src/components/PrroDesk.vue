@@ -495,182 +495,237 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="prro-desk">
-    <header class="prro-header">
+    <header class="page-header">
       <div>
+        <p class="eyebrow">РОБОЧЕ МІСЦЕ КАСИРА</p>
         <h2>Каса / ПРРО</h2>
-        <p>Керування зміною ПРРО та фіскальними операціями філії.</p>
+        <p class="page-description">Стан каси, керування зміною та фіскальні операції.</p>
+      </div>
+      <div class="branch-picker">
+        <label for="prro-branch-number">Філія</label>
+        <select id="prro-branch-number" v-model="branchNo" :disabled="busy" @change="loadDeviceForBranch">
+          <option value="" disabled>Оберіть філію</option>
+          <option v-for="branch in branches" :key="branch.branchNo" :value="String(branch.branchNo)">
+            {{ branch.branchNo }} · {{ branch.name }}
+          </option>
+        </select>
       </div>
     </header>
 
-    <section class="prro-panel shift-panel" aria-labelledby="shift-title">
-      <div class="shift-heading">
-        <div>
-          <p class="eyebrow">ПОТОЧНА ФІЛІЯ</p>
-          <h3 id="shift-title">{{ session.branch?.name || "Філію не визначено" }}</h3>
+    <section class="prro-panel shift-overview" aria-labelledby="shift-title">
+      <div class="overview-main">
+        <div class="overview-copy">
+          <p class="eyebrow">ПОТОЧНА КАСА</p>
+          <h3 id="shift-title">{{ session.branch?.name || "Вибрана філія" }}</h3>
+          <p class="device-line">
+            <span>{{ deviceName || "ПРРО не налаштовано для цієї філії" }}</span>
+            <span v-if="fiscalNumber">ФН {{ fiscalNumber }}</span>
+          </p>
         </div>
-        <span class="status-pill status-unknown">{{ shiftStateLabel }}</span>
+        <div class="shift-state" :class="'state-' + (shiftStatus?.state || 'unknown').toLowerCase()">
+          <span class="state-dot"></span>
+          {{ shiftStateLabel }}
+        </div>
       </div>
-      <div class="branch-field">
-        <label for="prro-branch-number">Філія / каса</label>
-        <select id="prro-branch-number" v-model="branchNo" :disabled="busy" @change="loadDeviceForBranch">
-          <option value="" disabled>Оберіть філію</option>
-          <option v-for="branch in branches" :key="branch.branchNo" :value="String(branch.branchNo)">{{ branch.branchNo }} · {{ branch.name }}</option>
-        </select>
-        <small v-if="deviceName">{{ deviceName }} · ФН {{ fiscalNumber }}</small>
+
+      <div v-if="shiftStatus" class="status-summary">
+        <div><span>Середовище</span><strong>{{ shiftStatus.environment || "—" }}</strong></div>
+        <div><span>Зв’язок із ДПС</span><strong>{{ shiftStatus.online ? "Онлайн" : "Офлайн" }}</strong></div>
+        <div><span>Зміна за ДПС</span><strong>{{ shiftStatus.dpsOpenShift ? "Відкрита" : "Закрита" }}</strong></div>
+        <div><span>Наступний номер</span><strong>{{ shiftStatus.nextLocalNumber ?? "—" }}</strong></div>
       </div>
-      <p class="prro-note">Для перевірки стану фіскальний номер ПРРО підписується через вбудований IIT SignWidget. Приватний ключ залишається на комп’ютері касира. Тестове відкриття доступне лише для TEST-ПРРО.</p>
-      <div v-if="canRunDiagnostics && result?.operators?.length" class="branch-field">
-        <label for="prro-signer-serial">Сертифікат касира, зареєстрований у ДПС</label>
+
+      <p class="help-text">
+        Для перевірки стану та фіскальних операцій касир підписує дані через IIT SignWidget.
+        Приватний ключ залишається на комп’ютері касира.
+      </p>
+
+      <div v-if="canRunDiagnostics && result?.operators?.length" class="signer-picker">
+        <label for="prro-signer-serial">Підписувач активної зміни</label>
         <select id="prro-signer-serial" v-model="selectedSignerKeyId" :disabled="busy">
-          <option value="">Оберіть сертифікат</option>
+          <option value="">Оберіть сертифікат касира</option>
           <option v-for="operator in result.operators" :key="operator.serial" :value="operator.serial">
             {{ operator.name || "Оператор" }} · {{ operator.serial }} · статус {{ operator.status }}
           </option>
         </select>
+        <small>Для операцій зміни використовується той самий сертифікат, яким її відкрито.</small>
       </div>
-      <div class="shift-actions">
-        <button type="button" :disabled="busy || shiftStatus?.state !== 'CLOSED' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId" @click="openShiftOnTest">Відкрити зміну (тест)</button>
-        <button type="button" class="secondary" :disabled="busy" @click="refreshShift">{{ busy ? "Перевіряємо…" : "Підписати та оновити стан" }}</button>
-        <button type="button" class="secondary" :disabled="busy" @click="inspectLastCheck">{{ busy ? "Виконуємо…" : "Перевірити останній чек (lastChk)" }}</button>
-      </div>
-      <p v-if="message" role="status" class="prro-message">{{ message }}</p>
-      <p v-if="error" role="alert" class="prro-error">{{ error }}</p>
-      <dl v-if="shiftStatus" class="prro-result shift-result">
-        <div><dt>Фіскальний номер</dt><dd>{{ shiftStatus.fiscalNumber }}</dd></div>
-        <div><dt>Середовище</dt><dd>{{ shiftStatus.environment }}</dd></div>
-        <div><dt>Статус infoRro / statusRro</dt><dd>{{ shiftStatus.infoStatus }} / {{ shiftStatus.statusStatus }}</dd></div>
-        <div><dt>Реєстрація ПРРО</dt><dd>{{ shiftStatus.rroRegistrationStatus }}</dd></div>
-        <div><dt>Зв’язок із ДПС</dt><dd>{{ shiftStatus.online ? "Онлайн" : "Офлайн" }}</dd></div>
-        <div><dt>Зміна за даними ДПС</dt><dd>{{ shiftStatus.dpsOpenShift ? "Відкрита" : "Закрита" }}</dd></div>
-        <div><dt>Локальна операція відкриття</dt><dd>{{ shiftStatus.localShiftPrepared ? "Є" : "Немає" }}</dd></div>
-        <div><dt>Наступний локальний номер</dt><dd>{{ shiftStatus.nextLocalNumber }}</dd></div>
-        <div><dt>Останній підписувач</dt><dd>{{ shiftStatus.lastSigner || "—" }}</dd></div>
-        <div><dt>Повідомлення ДПС</dt><dd>{{ shiftStatus.dpsMessage || "—" }}</dd></div>
-      </dl>
-      <dl v-if="lastCheck" class="prro-result shift-result">
-        <div><dt>Відповідь lastChk</dt><dd>{{ lastCheck.responseStatus }} ({{ lastCheck.responseCode }})</dd></div>
-        <div><dt>ID документа ДПС</dt><dd>{{ lastCheck.fiscalDocumentId || "—" }}</dd></div>
-        <div><dt>Розмір data_sign</dt><dd>{{ lastCheck.dataSignLength }} байт</dd></div>
-        <div><dt>Починається з XML</dt><dd>{{ lastCheck.dataSignStartsWithXml ? "Так" : "Ні" }}</dd></div>
-        <div><dt>SHA-256 data_sign</dt><dd>{{ lastCheck.dataSignSha256 || "—" }}</dd></div>
-        <div><dt>Повідомлення ДПС</dt><dd>{{ lastCheck.dpsMessage || "—" }}</dd></div>
-      </dl>
-      <dl v-if="shiftOpenResult" class="prro-result shift-result">
-        <div><dt>Операція</dt><dd>{{ shiftOpenResult.operationId }}</dd></div>
-        <div><dt>Стан</dt><dd>{{ shiftOpenResult.status }}</dd></div>
-        <div><dt>Код ДПС</dt><dd>{{ shiftOpenResult.responseCode ?? "—" }}</dd></div>
-        <div><dt>ID документа ДПС</dt><dd>{{ shiftOpenResult.fiscalDocumentId || "—" }}</dd></div>
-        <div><dt>SHA-256 підпису</dt><dd>{{ shiftOpenResult.signedPayloadSha256 || "—" }}</dd></div>
-        <div><dt>Повідомлення ДПС</dt><dd>{{ shiftOpenResult.responseMessage || "—" }}</dd></div>
-      </dl>
-      <dl v-if="shiftCloseResult" class="prro-result shift-result">
-        <div><dt>Операція закриття</dt><dd>{{ shiftCloseResult.operationId }}</dd></div>
-        <div><dt>Стан</dt><dd>{{ shiftCloseResult.status }}</dd></div>
-        <div><dt>Код ДПС</dt><dd>{{ shiftCloseResult.responseCode ?? "—" }}</dd></div>
-        <div><dt>ID документа ДПС</dt><dd>{{ shiftCloseResult.fiscalDocumentId || "—" }}</dd></div>
-        <div><dt>SHA-256 підписаного ZREPORT</dt><dd>{{ shiftCloseResult.signedPayloadSha256 || "—" }}</dd></div>
-        <div><dt>Повідомлення ДПС</dt><dd>{{ shiftCloseResult.responseMessage || "—" }}</dd></div>
-      </dl>
-      <p v-if="shiftStatus?.state === 'RECONCILIATION_REQUIRED'" class="integration-note" role="alert">Стан у ДПС не збігається з локальним станом Baget. Не відкривайте нову зміну та не фіскалізуйте чеки, доки операцію не буде звірено.</p>
-    </section>
 
-    <section class="operation-grid" aria-label="Операції ПРРО">
-      <article class="prro-panel operation-card">
-        <h3>Фіскалізація чеків</h3>
-        <p>Фіскалізація нового надходження після збереження оплати в Baget.</p>
-        <button type="button" class="secondary" disabled>Перейти до чеків</button>
-      </article>
-      <article class="prro-panel operation-card">
-        <h3>Закриття зміни</h3>
-        <p>Формування Z-звіту та закриття активної зміни ПРРО.</p>
-        <button type="button" class="secondary"
+      <div class="primary-actions">
+        <button type="button" class="button-primary" :disabled="busy || !branchNo" @click="refreshShift">
+          {{ busy ? "Виконується…" : "Підписати та оновити стан" }}
+        </button>
+        <button type="button" class="button-secondary"
+          :disabled="busy || shiftStatus?.state !== 'CLOSED' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId"
+          @click="openShiftOnTest">
+          Відкрити зміну
+        </button>
+        <button type="button" class="button-secondary"
           :disabled="busy || shiftStatus?.state !== 'OPEN' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId"
-          @click="closeShiftOnTest">Закрити зміну (TEST)</button>
-      </article>
-      <article class="prro-panel operation-card">
-        <h3>Історія операцій</h3>
-        <p>Перегляд фіскалізованих, відхилених і невизначених операцій.</p>
-        <button type="button" class="secondary" disabled>Відкрити історію</button>
-      </article>
+          @click="closeShiftOnTest">
+          Закрити зміну · Z-звіт
+        </button>
+      </div>
+
+      <p v-if="message" role="status" class="feedback feedback-success">{{ message }}</p>
+      <p v-if="error" role="alert" class="feedback feedback-error">{{ error }}</p>
+      <p v-if="shiftStatus?.state === 'RECONCILIATION_REQUIRED'" class="reconciliation-warning" role="alert">
+        Стан у ДПС не збігається з локальним станом Baget. Не відкривайте нову зміну та не фіскалізуйте чеки,
+        доки операцію не буде звірено.
+      </p>
+
+      <details v-if="shiftStatus" class="technical-details">
+        <summary>Технічні дані стану</summary>
+        <dl class="data-grid">
+          <div><dt>Фіскальний номер</dt><dd>{{ shiftStatus.fiscalNumber || fiscalNumber }}</dd></div>
+          <div><dt>Статус infoRro / statusRro</dt><dd>{{ shiftStatus.infoStatus }} / {{ shiftStatus.statusStatus }}</dd></div>
+          <div><dt>Реєстрація ПРРО</dt><dd>{{ shiftStatus.rroRegistrationStatus ?? "—" }}</dd></div>
+          <div><dt>Локальна операція відкриття</dt><dd>{{ shiftStatus.localShiftPrepared ? "Є" : "Немає" }}</dd></div>
+          <div><dt>Останній підписувач</dt><dd>{{ shiftStatus.lastSigner || "—" }}</dd></div>
+          <div><dt>Повідомлення ДПС</dt><dd>{{ shiftStatus.dpsMessage || "—" }}</dd></div>
+        </dl>
+      </details>
     </section>
 
-    <details v-if="canRunDiagnostics" class="diagnostics">
-      <summary>Адміністративна діагностика ДПС</summary>
-      <div class="prro-panel">
-      <label for="rro-fiscal-number">Фіскальний номер ПРРО</label>
-      <input id="rro-fiscal-number" v-model.trim="fiscalNumber" inputmode="numeric"
-        autocomplete="off" maxlength="32" :disabled="busy" />
-      <div class="prro-actions">
-        <button type="button" :disabled="busy" @click="inspect">
-          {{ busy ? "Виконується…" : "Підписати та перевірити infoRro" }}
-        </button>
-        <button type="button" class="secondary" :disabled="busy || !endUser" @click="resetKey">
-          Очистити ключ ІІТ
-        </button>
-      </div>
-      <p class="prro-note">Підписання відбувається локально через віджет ІІТ. Приватний ключ і пароль не надсилаються на бекенд; надсилається лише підпис для перевірки ДПС.</p>
-      <p v-if="message" role="status" class="prro-message">{{ message }}</p>
-      <p v-if="error" role="alert" class="prro-error">{{ error }}</p>
-    </div>
-
-    <div v-if="result" class="prro-panel">
-      <h3>Відповідь ДПС</h3>
-      <dl class="prro-result">
-        <div><dt>Номер, переданий на підписання</dt><dd>{{ checkedFiscalNumber }}</dd></div>
-        <div><dt>infoRro</dt><dd>{{ result.infoStatus }}</dd></div>
-        <div><dt>statusRro</dt><dd>{{ result.statusStatus }}</dd></div>
-        <div><dt>Статус ПРРО</dt><dd>{{ result.statusRro }}</dd></div>
-        <div><dt>Онлайн</dt><dd>{{ result.online ? "Так" : "Ні" }}</dd></div>
-        <div><dt>Зміна відкрита</dt><dd>{{ result.openShift ? "Так" : "Ні" }}</dd></div>
-        <div><dt>Назва</dt><dd>{{ result.name || "—" }}</dd></div>
-        <div><dt>Назва платника</dt><dd>{{ result.paymentName || "—" }}</dd></div>
-        <div><dt>Останній підписувач</dt><dd>{{ result.lastSigner || "—" }}</dd></div>
-        <div><dt>Помилка statusRro</dt><dd>{{ result.statusErrorMessage || "—" }}</dd></div>
-      </dl>
-      <p class="prro-note">Номер вище взято з введеного значення, яке підписував віджет ІІТ. Відповідь про ПРРО ДПС визначає за підписаними даними, а не за окремо переданим номером.</p>
-      <h4>Зареєстровані оператори</h4>
-      <p v-if="!result.operators?.length">ДПС не повернула список операторів.</p>
-      <ul v-else class="prro-operators">
-        <li v-for="operator in result.operators" :key="operator.serial">
-          {{ operator.name || "Оператор" }} · статус {{ operator.status }}
-          <span v-if="operator.senior">· старший касир</span>
-        </li>
-      </ul>
-    </div>
-
-      <div class="prro-panel fixture-panel">
-        <h3>Тестові приклади XML · IIT SignWidget</h3>
-        <p class="prro-note">
-          Приклади взято з документів ДПС: відкриття зміни — API від 01.09.2021;
-          продаж — протокол 2.2.3, редакція 3.1 від 18.02.2025.
-          Це діагностика підписання, а не готова команда фіскалізації.
-        </p>
-        <div class="prro-actions">
-          <button type="button" class="secondary" :disabled="busy" @click="loadShiftOpenFixture">
-            Приклад відкриття зміни (SERVICECHK)
-          </button>
-          <button type="button" class="secondary" :disabled="busy" @click="loadSaleCheckFixture">
-            Приклад продажу (CHK)
-          </button>
-          <button type="button" :disabled="busy || !fixtureXml" @click="signFixture">
-            {{ busy ? "Підписуємо…" : "Підписати XML через IIT" }}
-          </button>
+    <section class="work-section" aria-labelledby="operations-title">
+      <div class="section-heading">
+        <div>
+          <h3 id="operations-title">Операції</h3>
+          <p>Основні дії касира в межах відкритої зміни.</p>
         </div>
-        <p v-if="fixtureKind === 'SALE_CHECK'" class="prro-note">
-          У прикладі продажу показано лише DAT. MAC і точний ланцюжок попереднього документа
-          навмисно не підставляються навмання.
-        </p>
-        <textarea v-if="fixtureXml" v-model="fixtureXml" class="fixture-xml"
-          rows="12" spellcheck="false" :disabled="busy"></textarea>
-        <dl v-if="fixtureResult" class="prro-result">
-          <div><dt>Тип тесту</dt><dd>{{ fixtureResult.kind }}</dd></div>
-          <div><dt>Розмір підпису</dt><dd>{{ fixtureResult.signatureBytesLength }} байт</dd></div>
-          <div><dt>SHA-256 підпису</dt><dd>{{ fixtureResult.signatureSha256 || "WebCrypto недоступний" }}</dd></div>
-          <div><dt>Початок Base64</dt><dd>{{ fixtureResult.signatureBase64Prefix }}…</dd></div>
-        </dl>
-        <p class="prro-note">Приватний ключ залишається у віджеті. Підпис зберігається лише в пам’яті цієї сторінки та не надсилається на backend або ДПС.</p>
       </div>
+      <div class="operation-grid">
+        <article class="prro-panel operation-card">
+          <div class="operation-icon">₴</div>
+          <div>
+            <h4>Фіскалізація чека</h4>
+            <p>Фіскалізація нового надходження після збереження оплати в Baget.</p>
+          </div>
+          <span class="feature-status">Готується</span>
+          <button type="button" class="button-secondary" disabled>Незабаром</button>
+        </article>
+        <article class="prro-panel operation-card">
+          <div class="operation-icon">↻</div>
+          <div>
+            <h4>Закриття зміни</h4>
+            <p>Формування Z-звіту та закриття активної зміни ПРРО.</p>
+          </div>
+          <span class="feature-status feature-ready">Доступно для TEST</span>
+          <button type="button" class="button-secondary"
+            :disabled="busy || shiftStatus?.state !== 'OPEN' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId"
+            @click="closeShiftOnTest">Підготувати Z-звіт</button>
+        </article>
+        <article class="prro-panel operation-card">
+          <div class="operation-icon">≡</div>
+          <div>
+            <h4>Історія операцій</h4>
+            <p>Фіскалізовані, відхилені та операції, що потребують звірки.</p>
+          </div>
+          <span class="feature-status">Готується</span>
+          <button type="button" class="button-secondary" disabled>Незабаром</button>
+        </article>
+      </div>
+    </section>
 
+    <details v-if="canRunDiagnostics" class="diagnostics-section">
+      <summary>
+        <span><strong>Діагностика та інструменти</strong><small>Технічна інформація ДПС, lastChk та IIT</small></span>
+      </summary>
+      <div class="diagnostics-content">
+        <section class="prro-panel">
+          <h3>Діагностика ПРРО у ДПС</h3>
+          <label for="rro-fiscal-number">Фіскальний номер ПРРО</label>
+          <input id="rro-fiscal-number" v-model.trim="fiscalNumber" inputmode="numeric"
+            autocomplete="off" maxlength="32" :disabled="busy" />
+          <div class="diagnostic-actions">
+            <button type="button" class="button-primary" :disabled="busy" @click="inspect">
+              {{ busy ? "Виконується…" : "Підписати та перевірити infoRro" }}
+            </button>
+            <button type="button" class="button-secondary" :disabled="busy" @click="inspectLastCheck">
+              Перевірити lastChk
+            </button>
+            <button type="button" class="button-secondary" :disabled="busy || !endUser" @click="resetKey">
+              Очистити ключ ІІТ
+            </button>
+          </div>
+          <p class="help-text">Підписання відбувається локально через IIT SignWidget. Приватний ключ і пароль не надсилаються на backend.</p>
+          <div v-if="result" class="diagnostic-result">
+            <h4>Відповідь infoRro / statusRro</h4>
+            <dl class="data-grid">
+              <div><dt>Підписаний номер</dt><dd>{{ checkedFiscalNumber }}</dd></div>
+              <div><dt>infoRro</dt><dd>{{ result.infoStatus }}</dd></div>
+              <div><dt>statusRro</dt><dd>{{ result.statusStatus }}</dd></div>
+              <div><dt>Статус ПРРО</dt><dd>{{ result.statusRro }}</dd></div>
+              <div><dt>Онлайн</dt><dd>{{ result.online ? "Так" : "Ні" }}</dd></div>
+              <div><dt>Зміна відкрита</dt><dd>{{ result.openShift ? "Так" : "Ні" }}</dd></div>
+              <div><dt>Назва</dt><dd>{{ result.name || "—" }}</dd></div>
+              <div><dt>Платник</dt><dd>{{ result.paymentName || "—" }}</dd></div>
+              <div><dt>Останній підписувач</dt><dd>{{ result.lastSigner || "—" }}</dd></div>
+              <div><dt>Помилка statusRro</dt><dd>{{ result.statusErrorMessage || "—" }}</dd></div>
+            </dl>
+            <h4>Зареєстровані оператори</h4>
+            <p v-if="!result.operators?.length">ДПС не повернула список операторів.</p>
+            <ul v-else class="operator-list">
+              <li v-for="operator in result.operators" :key="operator.serial">
+                {{ operator.name || "Оператор" }} · {{ operator.serial }} · статус {{ operator.status }}
+                <span v-if="operator.senior">· старший касир</span>
+              </li>
+            </ul>
+          </div>
+          <div v-if="lastCheck" class="diagnostic-result">
+            <h4>Відповідь lastChk</h4>
+            <dl class="data-grid">
+              <div><dt>Статус</dt><dd>{{ lastCheck.responseStatus }} ({{ lastCheck.responseCode }})</dd></div>
+              <div><dt>ID документа ДПС</dt><dd>{{ lastCheck.fiscalDocumentId || "—" }}</dd></div>
+              <div><dt>Розмір data_sign</dt><dd>{{ lastCheck.dataSignLength }} байт</dd></div>
+              <div><dt>XML</dt><dd>{{ lastCheck.dataSignStartsWithXml ? "Так" : "Ні" }}</dd></div>
+              <div><dt>SHA-256 data_sign</dt><dd>{{ lastCheck.dataSignSha256 || "—" }}</dd></div>
+              <div><dt>Повідомлення ДПС</dt><dd>{{ lastCheck.dpsMessage || "—" }}</dd></div>
+            </dl>
+          </div>
+        </section>
+
+        <section v-if="shiftOpenResult || shiftCloseResult" class="prro-panel">
+          <h3>Результат останньої операції</h3>
+          <dl class="data-grid">
+            <template v-if="shiftOpenResult">
+              <div><dt>Відкриття зміни</dt><dd>{{ shiftOpenResult.status }}</dd></div>
+              <div><dt>Код ДПС</dt><dd>{{ shiftOpenResult.responseCode ?? "—" }}</dd></div>
+              <div><dt>ID документа</dt><dd>{{ shiftOpenResult.fiscalDocumentId || "—" }}</dd></div>
+              <div><dt>Повідомлення</dt><dd>{{ shiftOpenResult.responseMessage || "—" }}</dd></div>
+            </template>
+            <template v-if="shiftCloseResult">
+              <div><dt>Закриття зміни</dt><dd>{{ shiftCloseResult.status }}</dd></div>
+              <div><dt>Код ДПС</dt><dd>{{ shiftCloseResult.responseCode ?? "—" }}</dd></div>
+              <div><dt>ID документа</dt><dd>{{ shiftCloseResult.fiscalDocumentId || "—" }}</dd></div>
+              <div><dt>Повідомлення</dt><dd>{{ shiftCloseResult.responseMessage || "—" }}</dd></div>
+            </template>
+          </dl>
+        </section>
+
+        <section class="prro-panel fixture-panel">
+          <details>
+            <summary>Тестові XML-приклади та підписання IIT</summary>
+            <p class="help-text">
+              Локальна перевірка IIT SignWidget. Ці приклади не надсилаються до ДПС і не є фіскальними документами.
+            </p>
+            <div class="diagnostic-actions">
+              <button type="button" class="button-secondary" :disabled="busy" @click="loadShiftOpenFixture">Приклад SERVICECHK</button>
+              <button type="button" class="button-secondary" :disabled="busy" @click="loadSaleCheckFixture">Приклад CHK</button>
+              <button type="button" class="button-primary" :disabled="busy || !fixtureXml" @click="signFixture">
+                {{ busy ? "Підписуємо…" : "Підписати XML через IIT" }}
+              </button>
+            </div>
+            <textarea v-if="fixtureXml" v-model="fixtureXml" class="fixture-xml" rows="10" spellcheck="false" :disabled="busy"></textarea>
+            <dl v-if="fixtureResult" class="data-grid">
+              <div><dt>Тип тесту</dt><dd>{{ fixtureResult.kind }}</dd></div>
+              <div><dt>Розмір підпису</dt><dd>{{ fixtureResult.signatureBytesLength }} байт</dd></div>
+              <div><dt>SHA-256</dt><dd>{{ fixtureResult.signatureSha256 || "Недоступний" }}</dd></div>
+              <div><dt>Початок Base64</dt><dd>{{ fixtureResult.signatureBase64Prefix }}…</dd></div>
+            </dl>
+          </details>
+        </section>
+      </div>
     </details>
 
     <div id="iit-widget-overlay" class="iit-widget-overlay" :class="{ visible: widgetVisible }">
@@ -683,50 +738,52 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.prro-desk { padding: 20px clamp(12px, 3vw, 28px); display: grid; gap: 16px; min-width: 0; }
-.shift-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-.shift-heading h3 { margin: 4px 0 12px; }
-.eyebrow { margin: 0; color: #697789; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
-.status-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 600; }
-.status-unknown { color: #596579; background: #eef1f5; }
-.branch-field { margin: 12px 0; }
-.branch-field label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
-.branch-field select { width: min(100%, 360px); min-height: 40px; border: 1px solid #b9c4d0; border-radius: 8px; padding: 8px 10px; font: inherit; display:block; }
-.branch-field small { display:block; margin-top:6px; color:#617580; }
-.shift-result { margin-top: 16px; }
-.shift-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
-.integration-note { margin: 14px 0 0; padding: 10px 12px; border-left: 3px solid #c58b2a; background: #fff8e9; color: #70521c; font-size: 13px; line-height: 1.5; }
-.operation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
-.operation-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
-.operation-card h3 { margin: 0; }
-.operation-card p { flex: 1; margin: 0 0 8px; color: #5d6878; line-height: 1.5; font-size: 14px; }
-.diagnostics summary { cursor: pointer; color: #34445b; font-weight: 600; padding: 8px 2px; }
-.diagnostics .prro-panel { margin-top: 12px; }
-.prro-header h2 { margin: 0 0 6px; }
-.prro-header p, .prro-note { color: #5d6878; margin: 0; line-height: 1.5; }
-.prro-panel { background: white; border: 1px solid #dce2e8; border-radius: 12px; padding: 18px; }
-.prro-panel h3, .prro-panel h4 { margin-top: 0; }
-.prro-panel label { display: block; margin-bottom: 8px; font-weight: 600; }
-.prro-panel input { box-sizing: border-box; width: 100%; max-width: 420px; min-height: 44px; border: 1px solid #b9c4d0; border-radius: 8px; padding: 10px 12px; font: inherit; }
-.prro-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
-.prro-actions button, .shift-actions button, .operation-card button { min-height: 44px; border: 0; border-radius: 8px; padding: 10px 16px; background: #2456a6; color: white; font: inherit; cursor: pointer; }
-.prro-actions button.secondary, .shift-actions button.secondary, .operation-card button.secondary { background: #edf1f5; color: #243247; }
-.prro-actions button:disabled, .shift-actions button:disabled, .operation-card button:disabled { opacity: .55; cursor: not-allowed; }
-.prro-note { font-size: 13px; }
-.prro-message { color: #175d35; margin-bottom: 0; }
-.prro-error { color: #a21d28; margin-bottom: 0; }
-.prro-result { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
-.prro-result div { min-width: 0; }
-.prro-result dt { color: #657184; font-size: 13px; }
-.prro-result dd { margin: 4px 0 0; font-weight: 600; overflow-wrap: anywhere; }
-.fixture-panel { display: grid; gap: 12px; }
-.fixture-panel h3 { margin-bottom: 0; }
-.fixture-xml { box-sizing: border-box; width: 100%; min-height: 220px; resize: vertical; border: 1px solid #b9c4d0; border-radius: 8px; padding: 12px; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; }
-.prro-operators { padding-left: 20px; }
-.iit-widget-overlay { position: fixed; inset: 0; z-index: 2000; display: none; align-items: center; justify-content: center; padding: 16px; background: #0c1728a8; }
-.iit-widget-overlay.visible { display: flex; }
-.iit-widget-dialog { width: min(900px, 100%); height: min(800px, 92vh); overflow: hidden; background: white; border-radius: 12px; display: flex; flex-direction: column; }
-.iit-widget-title { padding: 12px 16px; font-weight: 600; border-bottom: 1px solid #e0e5eb; }
-.iit-widget-parent { flex: 1; min-height: 0; }
-@media (max-width: 600px) { .shift-heading { align-items: flex-start; } .shift-actions button { width: 100%; } .iit-widget-overlay { padding: 0; } .iit-widget-dialog { height: 100dvh; border-radius: 0; } }
+.prro-desk { display:grid; gap:22px; min-width:0; padding:20px clamp(12px,3vw,28px); color:#1d2939; }
+.page-header,.overview-main,.section-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:18px; }
+.page-header h2 { margin:3px 0 5px; font-size:24px; }
+.page-description,.section-heading p { margin:0; color:#667085; font-size:14px; }
+.eyebrow { margin:0; color:#667085; font-size:11px; font-weight:700; letter-spacing:.08em; }
+.branch-picker { display:grid; gap:6px; min-width:min(280px,100%); }
+.branch-picker label,.signer-picker label,.prro-panel label { font-size:13px; font-weight:650; }
+.branch-picker select,.signer-picker select,.prro-panel input { box-sizing:border-box; width:100%; min-height:42px; border:1px solid #cfd6df; border-radius:9px; padding:9px 11px; background:#fff; color:inherit; font:inherit; }
+.prro-panel { min-width:0; padding:20px; border:1px solid #e0e5eb; border-radius:14px; background:#fff; }
+.shift-overview { display:grid; gap:18px; }
+.overview-copy h3 { margin:5px 0 7px; font-size:19px; }
+.device-line { display:flex; flex-wrap:wrap; gap:8px 16px; margin:0; color:#667085; font-size:13px; }
+.shift-state { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px; background:#f2f4f7; color:#475467; font-size:13px; font-weight:650; white-space:nowrap; }
+.state-dot { width:8px; height:8px; border-radius:50%; background:#98a2b3; }
+.state-open { background:#ecfdf3; color:#067647; }.state-open .state-dot { background:#12b76a; }
+.state-closed { background:#f2f4f7; color:#475467; }.state-closed .state-dot { background:#667085; }
+.state-dps_error,.state-reconciliation_required { background:#fff4ed; color:#b54708; }.state-dps_error .state-dot,.state-reconciliation_required .state-dot { background:#f79009; }
+.status-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:15px; border-radius:10px; background:#f8fafc; }
+.status-summary div { display:grid; gap:5px; min-width:0; }.status-summary span,.data-grid dt { color:#667085; font-size:12px; }.status-summary strong { font-size:14px; overflow-wrap:anywhere; }
+.help-text { margin:0; color:#667085; font-size:13px; line-height:1.55; }
+.signer-picker { display:grid; gap:7px; max-width:520px; }.signer-picker small { color:#667085; font-size:12px; }
+.primary-actions,.diagnostic-actions { display:flex; flex-wrap:wrap; gap:9px; }
+.primary-actions button,.diagnostic-actions button,.operation-card button { min-height:42px; border:0; border-radius:9px; padding:10px 15px; font:inherit; font-size:13px; font-weight:650; cursor:pointer; }
+.button-primary { background:#2456a6; color:#fff; }.button-secondary { background:#eef2f6; color:#344054; }
+button:disabled { opacity:.48; cursor:not-allowed; }
+.feedback { margin:0; padding:11px 13px; border-radius:9px; font-size:13px; line-height:1.5; }
+.feedback-success { background:#ecfdf3; color:#067647; }.feedback-error { background:#fef3f2; color:#b42318; }
+.reconciliation-warning { margin:0; padding:12px 14px; border-left:3px solid #f79009; background:#fffaeb; color:#93370d; font-size:13px; line-height:1.5; }
+.technical-details { border-top:1px solid #eaecf0; padding-top:12px; }.technical-details summary,.diagnostics-section>summary,.fixture-panel summary { cursor:pointer; color:#475467; font-size:13px; font-weight:650; }
+.data-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:13px 18px; margin:14px 0 0; }
+.data-grid div { min-width:0; }.data-grid dd { margin:4px 0 0; font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+.work-section { display:grid; gap:13px; }.section-heading h3 { margin:0 0 4px; font-size:18px; }
+.operation-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.operation-card { display:flex; flex-direction:column; align-items:flex-start; gap:10px; }.operation-icon { display:grid; place-items:center; width:36px; height:36px; border-radius:10px; background:#eef4ff; color:#2456a6; font-size:19px; font-weight:700; }
+.operation-card h4 { margin:0 0 5px; font-size:15px; }.operation-card p { margin:0; color:#667085; font-size:13px; line-height:1.5; flex:1; }
+.feature-status { color:#667085; font-size:11px; font-weight:650; }.feature-ready { color:#067647; }
+.operation-card button { width:100%; margin-top:3px; }
+.diagnostics-section { border:1px solid #e0e5eb; border-radius:12px; background:#f8fafc; padding:14px 16px; }
+.diagnostics-section>summary { list-style:none; }.diagnostics-section>summary::-webkit-details-marker { display:none; }
+.diagnostics-section>summary span { display:grid; gap:3px; }.diagnostics-section>summary strong { color:#344054; font-size:14px; }.diagnostics-section>summary small { color:#667085; font-size:12px; font-weight:400; }
+.diagnostics-content { display:grid; gap:12px; margin-top:14px; }.diagnostics-content h3 { margin:0 0 14px; font-size:16px; }.diagnostics-content h4 { margin:18px 0 0; font-size:13px; }
+.diagnostic-actions { margin:12px 0; }.diagnostic-result { margin-top:16px; padding-top:14px; border-top:1px solid #eaecf0; }
+.operator-list { padding-left:18px; color:#475467; font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
+.fixture-panel details { display:grid; gap:12px; }.fixture-panel .help-text { margin-top:12px; }.fixture-xml { box-sizing:border-box; width:100%; min-height:200px; margin-top:12px; padding:12px; border:1px solid #cfd6df; border-radius:9px; font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre; }
+.iit-widget-overlay { position:fixed; inset:0; z-index:2000; display:none; align-items:center; justify-content:center; padding:16px; background:#0c1728a8; }.iit-widget-overlay.visible { display:flex; }
+.iit-widget-dialog { display:flex; flex-direction:column; width:min(900px,100%); height:min(800px,92vh); overflow:hidden; border-radius:12px; background:#fff; }.iit-widget-title { padding:12px 16px; border-bottom:1px solid #e0e5eb; font-weight:650; }.iit-widget-parent { flex:1; min-height:0; }
+@media(max-width:850px) { .operation-grid { grid-template-columns:1fr; }.status-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .page-header,.overview-main { flex-direction:column; }.branch-picker { width:100%; }.shift-state { align-self:flex-start; }.primary-actions,.diagnostic-actions { display:grid; grid-template-columns:1fr; }.primary-actions button,.diagnostic-actions button { width:100%; }.status-summary { grid-template-columns:1fr 1fr; }.iit-widget-overlay { padding:0; }.iit-widget-dialog { width:100%; height:100dvh; border-radius:0; } }
 </style>
