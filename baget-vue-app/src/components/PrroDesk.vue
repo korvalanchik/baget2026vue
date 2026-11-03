@@ -772,6 +772,7 @@ button:disabled { opacity:.48; cursor:not-allowed; }
 .operation-card { display:flex; flex-direction:column; align-items:flex-start; gap:10px; }.operation-icon { display:grid; place-items:center; width:36px; height:36px; border-radius:10px; background:#eef4ff; color:#2456a6; font-size:19px; font-weight:700; }
 .operation-card h4 { margin:0 0 5px; font-size:15px; }.operation-card p { margin:0; color:#667085; font-size:13px; line-height:1.5; flex:1; }
 .feature-status { color:#667085; font-size:11px; font-weight:650; }.feature-ready { color:#067647; }
+.operation-hint { color:#667085; font-size:12px; line-height:1.4; }
 .operation-card button { width:100%; margin-top:3px; }
 .diagnostics-section { border:1px solid #e0e5eb; border-radius:12px; background:#f8fafc; padding:14px 16px; }
 .diagnostics-section>summary { list-style:none; }.diagnostics-section>summary::-webkit-details-marker { display:none; }
