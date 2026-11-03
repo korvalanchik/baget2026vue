@@ -611,9 +611,7 @@ onBeforeUnmount(() => {
             <p>Формування Z-звіту та закриття активної зміни ПРРО.</p>
           </div>
           <span class="feature-status feature-ready">Доступно для TEST</span>
-          <button type="button" class="button-secondary"
-            :disabled="busy || shiftStatus?.state !== 'OPEN' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId"
-            @click="closeShiftOnTest">Підготувати Z-звіт</button>
+          <small class="operation-hint">Керування зміною — у блоці стану каси вище.</small>
         </article>
         <article class="prro-panel operation-card">
           <div class="operation-icon">≡</div>
