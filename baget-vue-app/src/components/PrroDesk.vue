@@ -24,6 +24,7 @@ const shiftOpenIdempotencyKey = ref("");
 const shiftCloseResult = ref(null);
 const shiftCloseIdempotencyKey = ref("");
 const shiftStateLabel = computed(() => ({ OPEN: "Зміна відкрита", CLOSED: "Зміна закрита", DPS_ERROR: "Помилка відповіді ДПС", RECONCILIATION_REQUIRED: "Потрібна звірка стану" }[shiftStatus.value?.state] || "Стан не перевірено"));
+const selectedBranchName = computed(() => branches.value.find(branch => String(branch.branchNo) === branchNo.value)?.name || props.session.branch?.name || "Філію не визначено");
 const widgetVisible = ref(false);
 let endUser = null;
 let scriptPromise = null;
@@ -516,7 +517,7 @@ onBeforeUnmount(() => {
       <div class="overview-main">
         <div class="overview-copy">
           <p class="eyebrow">ПОТОЧНА КАСА</p>
-          <h3 id="shift-title">{{ session.branch?.name || "Вибрана філія" }}</h3>
+          <h3 id="shift-title">{{ selectedBranchName }}</h3>
           <p class="device-line">
             <span>{{ deviceName || "ПРРО не налаштовано для цієї філії" }}</span>
             <span v-if="fiscalNumber">ФН {{ fiscalNumber }}</span>
