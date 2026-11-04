@@ -288,6 +288,7 @@ async function inspect() {
   }
 }
 
+
 async function openShiftOnTest() {
   if (busy.value) return;
   error.value = "";
@@ -297,12 +298,8 @@ async function openShiftOnTest() {
   const selectedBranch = branchNo.value.trim();
   const number = fiscalNumber.value.trim();
   const signerKeyId = selectedSignerKeyId.value.trim();
-  if (shiftStatus.value?.state !== "CLOSED" || shiftStatus.value?.environment !== "TEST") {
-    error.value = "Спочатку перевірте, що вибраний TEST-ПРРО має закриту зміну.";
-    return;
-  }
-  if (!signerKeyId) {
-    error.value = "Спочатку отримайте список операторів через адміністративну діагностику та виберіть сертифікат касира.";
+  if (!canOpenShift.value) {
+    error.value = "Перевірте, що TEST-ПРРО має стан CLOSED і вибрано активного касира.";
     return;
   }
 
@@ -310,21 +307,19 @@ async function openShiftOnTest() {
   try {
     message.value = "Завантажуємо віджет ІІТ…";
     const widget = await getWidget();
-    message.value = "Зчитайте КЕП касира. Спочатку підпишемо фіскальний номер для підготовки XML.";
+    message.value = "Зчитайте КЕП касира. Підпишемо фіскальний номер ПРРО.";
     await widget.ReadPrivateKey();
     const rroSignatureBase64 = await widget.SignData(
       number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
     );
     if (typeof rroSignatureBase64 !== "string" || !rroSignatureBase64.length) {
-      throw new Error("ІIT не повернув підпис фіскального номера.");
+      throw new Error("ІІТ не повернув підпис фіскального номера.");
     }
 
     if (!shiftOpenIdempotencyKey.value) {
-      shiftOpenIdempotencyKey.value = window.crypto?.randomUUID
-        ? window.crypto.randomUUID()
-        : "shift-open-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+      shiftOpenIdempotencyKey.value = createIdempotencyKey("shift-open");
     }
-    message.value = "Baget готує XML SERVICECHK та перевіряє попередній документ у ДПС…";
+    message.value = "Baget готує SERVICECHK та перевіряє попередній документ у ДПС…";
     const prepared = await preparePrroShiftOpen(props.session.token, {
       branchNo: Number(selectedBranch),
       fiscalNumber: number,
@@ -333,31 +328,44 @@ async function openShiftOnTest() {
       idempotencyKey: shiftOpenIdempotencyKey.value,
     });
 
-    const binary = window.atob(prepared.signingInputBase64);
-    const xmlBytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-    const xml = new TextDecoder("utf-8").decode(xmlBytes);
-    message.value = "XML отримано. Підтвердьте його підписання у віджеті IIT…";
+    const xml = decodeSigningInput(prepared.signingInputBase64);
+    message.value = "SERVICECHK сформовано. Підтвердьте підписання XML у віджеті IIT.";
     const signedPayloadBase64 = await widget.SignData(
       xml, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
     );
     if (typeof signedPayloadBase64 !== "string" || !signedPayloadBase64.length) {
-      throw new Error("IIT не повернув підписаний XML у Base64.");
+      throw new Error("ІІТ не повернув підписаний SERVICECHK у Base64.");
     }
 
     widgetVisible.value = false;
-    message.value = "Підпис отримано. Надсилаємо SERVICECHK на тестовий сервер ДПС…";
+    message.value = "Підпис отримано. Надсилаємо SERVICECHK до ДПС…";
     shiftOpenResult.value = await submitPrroShiftOpen(props.session.token, {
       operationId: prepared.operationId,
       signerKeyId,
       signedPayloadBase64,
     });
+
     if (shiftOpenResult.value.status === "FISCALIZED") {
-      message.value = "Тестовий сервер ДПС прийняв SERVICECHK. Перевірте відповідь і стан ПРРО.";
-    } else if (shiftOpenResult.value.status === "REJECTED") {
-      message.value = "ДПС відхилила SERVICECHK. Нижче наведено код і повідомлення відповіді.";
       shiftOpenIdempotencyKey.value = "";
+      message.value = "ДПС прийняла SERVICECHK. Автоматично оновлюємо стан зміни…";
+      try {
+        const refreshed = await refreshShiftState(selectedBranch, number, rroSignatureBase64);
+        const documentMatches = refreshed.lastCheck?.responseStatus === "OK"
+          && refreshed.lastCheck.dataSignSha256 === shiftOpenResult.value.signedPayloadSha256;
+        if (refreshed.status.state === "OPEN" && documentMatches) {
+          message.value = "Зміну відкрито. ДПС підтвердила OPEN, а lastChk збігається з підписаним SERVICECHK.";
+        } else {
+          message.value = "SERVICECHK фіскалізовано, але автоматична звірка стану/lastChk не пройшла. Не продовжуйте операції до перевірки.";
+        }
+      } catch (verificationError) {
+        message.value = "SERVICECHK фіскалізовано, але не вдалося оновити стан каси: "
+          + (verificationError.message || "невідома помилка");
+      }
+    } else if (shiftOpenResult.value.status === "REJECTED") {
+      shiftOpenIdempotencyKey.value = "";
+      message.value = "ДПС відхилила SERVICECHK. Зміна не вважається відкритою.";
     } else {
-      message.value = "Результат надсилання неоднозначний. Повторно не надсилайте — спочатку звіримо стан.";
+      message.value = "Результат SERVICECHK неоднозначний. Не повторюйте надсилання — спочатку звірте стан через statusRro та lastChk.";
     }
   } catch (e) {
     error.value = e.message || "Не вдалося підготувати, підписати або надіслати SERVICECHK.";
@@ -378,12 +386,8 @@ async function closeShiftOnTest() {
   const selectedBranch = branchNo.value.trim();
   const number = fiscalNumber.value.trim();
   const signerKeyId = selectedSignerKeyId.value.trim();
-  if (shiftStatus.value?.state !== "OPEN" || shiftStatus.value?.environment !== "TEST") {
-    error.value = "Спочатку перевірте, що вибраний TEST-ПРРО має відкриту зміну.";
-    return;
-  }
-  if (!signerKeyId) {
-    error.value = "Оберіть сертифікат касира, яким було відкрито цю зміну.";
+  if (!canCloseShift.value) {
+    error.value = "Для закриття потрібна відкрита TEST-зміна та той самий касир, яким її відкрито.";
     return;
   }
 
@@ -397,13 +401,11 @@ async function closeShiftOnTest() {
       number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
     );
     if (typeof rroSignatureBase64 !== "string" || !rroSignatureBase64.length) {
-      throw new Error("ІIT не повернув підпис фіскального номера.");
+      throw new Error("ІІТ не повернув підпис фіскального номера.");
     }
 
     if (!shiftCloseIdempotencyKey.value) {
-      shiftCloseIdempotencyKey.value = window.crypto?.randomUUID
-        ? window.crypto.randomUUID()
-        : "shift-close-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+      shiftCloseIdempotencyKey.value = createIdempotencyKey("shift-close");
     }
     message.value = "Baget перевіряє стан зміни, lastChk та готує ZREPORT…";
     const prepared = await preparePrroShiftClose(props.session.token, {
@@ -414,19 +416,17 @@ async function closeShiftOnTest() {
       idempotencyKey: shiftCloseIdempotencyKey.value,
     });
 
-    const binary = window.atob(prepared.signingInputBase64);
-    const xmlBytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-    const xml = new TextDecoder("utf-8").decode(xmlBytes);
-    message.value = "ZREPORT сформовано. Підтвердьте підписання XML у віджеті IIT…";
+    const xml = decodeSigningInput(prepared.signingInputBase64);
+    message.value = "ZREPORT сформовано. Підтвердьте підписання XML у віджеті IIT.";
     const signedPayloadBase64 = await widget.SignData(
       xml, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
     );
     if (typeof signedPayloadBase64 !== "string" || !signedPayloadBase64.length) {
-      throw new Error("IIT не повернув підписаний ZREPORT у Base64.");
+      throw new Error("ІІТ не повернув підписаний ZREPORT у Base64.");
     }
 
     widgetVisible.value = false;
-    message.value = "Підпис отримано. Надсилаємо ZREPORT на тестовий сервер ДПС…";
+    message.value = "Підпис отримано. Надсилаємо ZREPORT до ДПС…";
     shiftCloseResult.value = await submitPrroShiftClose(props.session.token, {
       operationId: prepared.operationId,
       signerKeyId,
@@ -434,35 +434,118 @@ async function closeShiftOnTest() {
     });
 
     if (shiftCloseResult.value.status === "FISCALIZED") {
-      // A new shift must use new idempotency keys for both open and close operations.
       shiftOpenIdempotencyKey.value = "";
       shiftCloseIdempotencyKey.value = "";
-      message.value = "ZREPORT прийнято. Перевіряємо statusRro та lastChk у ДПС…";
+      message.value = "ZREPORT прийнято. Автоматично перевіряємо закриття зміни…";
       try {
-        const [updatedStatus, updatedLastCheck] = await Promise.all([
-          getPrroShiftStatus(props.session.token, selectedBranch, number, rroSignatureBase64),
-          inspectLastPrroCheck(props.session.token, selectedBranch, number, rroSignatureBase64),
-        ]);
-        shiftStatus.value = updatedStatus;
-        lastCheck.value = updatedLastCheck;
-        if (updatedStatus.state === "CLOSED"
-          && updatedLastCheck.dataSignSha256 === shiftCloseResult.value.signedPayloadSha256) {
-          message.value = "ДПС підтвердила закриття зміни. SHA-256 lastChk збігається з підписаним ZREPORT.";
+        const refreshed = await refreshShiftState(selectedBranch, number, rroSignatureBase64);
+        const documentMatches = refreshed.lastCheck?.responseStatus === "OK"
+          && refreshed.lastCheck.dataSignSha256 === shiftCloseResult.value.signedPayloadSha256;
+        if (refreshed.status.state === "CLOSED" && documentMatches) {
           selectedSignerKeyId.value = "";
+          message.value = "Зміну закрито. ДПС підтвердила CLOSED, а lastChk збігається з підписаним ZREPORT.";
         } else {
-          message.value = "ZREPORT фіскалізовано, але контрольна звірка statusRro/lastChk потребує уваги. Не відкривайте наступну зміну до звірки.";
+          message.value = "ZREPORT фіскалізовано, але автоматична звірка стану/lastChk не пройшла. Не відкривайте наступну зміну до перевірки.";
         }
       } catch (verificationError) {
-        message.value = "ZREPORT фіскалізовано. Не вдалося автоматично завершити контрольну перевірку: "
+        message.value = "ZREPORT фіскалізовано, але не вдалося оновити стан каси: "
           + (verificationError.message || "невідома помилка");
       }
     } else if (shiftCloseResult.value.status === "REJECTED") {
-      message.value = "ДПС відхилила ZREPORT. Зміна залишається відкритою; не повторюйте надсилання без аналізу відповіді.";
+      shiftCloseIdempotencyKey.value = "";
+      message.value = "ДПС відхилила ZREPORT. Зміна залишається відкритою.";
     } else {
-      message.value = "Результат надсилання неоднозначний. Не надсилайте ZREPORT повторно — спочатку звіримо statusRro та lastChk.";
+      message.value = "Результат ZREPORT неоднозначний. Не надсилайте його повторно — спочатку звірте statusRro та lastChk.";
     }
   } catch (e) {
     error.value = e.message || "Не вдалося підготувати, підписати або надіслати ZREPORT.";
+    message.value = "";
+  } finally {
+    busy.value = false;
+    widgetVisible.value = false;
+  }
+}
+
+async function issueTestCheck() {
+  if (busy.value) return;
+  error.value = "";
+  message.value = "";
+  testCheckResult.value = null;
+
+  const selectedBranch = branchNo.value.trim();
+  const number = fiscalNumber.value.trim();
+  const signerKeyId = selectedSignerKeyId.value.trim();
+  if (!canCreateTestCheck.value) {
+    error.value = "Тестовий чек доступний лише у відкритій TEST-зміні, підписаній тим самим касиром.";
+    return;
+  }
+
+  busy.value = true;
+  try {
+    message.value = "Завантажуємо віджет ІІТ…";
+    const widget = await getWidget();
+    message.value = "Зчитайте КЕП касира. Підпишемо фіскальний номер ПРРО.";
+    await widget.ReadPrivateKey();
+    const rroSignatureBase64 = await widget.SignData(
+      number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof rroSignatureBase64 !== "string" || !rroSignatureBase64.length) {
+      throw new Error("ІІТ не повернув підпис фіскального номера.");
+    }
+
+    if (!testCheckIdempotencyKey.value) {
+      testCheckIdempotencyKey.value = createIdempotencyKey("test-check");
+    }
+    message.value = "Baget перевіряє відкриту зміну та готує тестовий CHK на 1,00 грн…";
+    const prepared = await preparePrroTestCheck(props.session.token, {
+      branchNo: Number(selectedBranch),
+      fiscalNumber: number,
+      rroSignatureBase64,
+      signerKeyId,
+      idempotencyKey: testCheckIdempotencyKey.value,
+    });
+
+    const xml = decodeSigningInput(prepared.signingInputBase64);
+    message.value = "Тестовий CHK сформовано. Перевірте суму 1,00 грн і підтвердьте підписання у віджеті IIT.";
+    const signedPayloadBase64 = await widget.SignData(
+      xml, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof signedPayloadBase64 !== "string" || !signedPayloadBase64.length) {
+      throw new Error("ІІТ не повернув підписаний CHK у Base64.");
+    }
+
+    widgetVisible.value = false;
+    message.value = "Підпис отримано. Надсилаємо тестовий CHK до ДПС…";
+    testCheckResult.value = await submitPrroTestCheck(props.session.token, {
+      operationId: prepared.operationId,
+      signerKeyId,
+      signedPayloadBase64,
+    });
+
+    if (testCheckResult.value.status === "FISCALIZED") {
+      testCheckIdempotencyKey.value = "";
+      message.value = "Тестовий чек фіскалізовано. Перевіряємо послідовність документів…";
+      try {
+        const refreshed = await refreshShiftState(selectedBranch, number, rroSignatureBase64);
+        const documentMatches = refreshed.lastCheck?.responseStatus === "OK"
+          && refreshed.lastCheck.dataSignSha256 === testCheckResult.value.signedPayloadSha256;
+        if (refreshed.status.state === "OPEN" && documentMatches) {
+          message.value = "Тестовий чек 1,00 грн фіскалізовано. Зміна залишається OPEN, lastChk підтвердив документ.";
+        } else {
+          message.value = "Тестовий чек фіскалізовано, але звірка statusRro/lastChk потребує уваги. Не надсилайте наступний документ до перевірки.";
+        }
+      } catch (verificationError) {
+        message.value = "Тестовий чек фіскалізовано, але не вдалося оновити стан каси: "
+          + (verificationError.message || "невідома помилка");
+      }
+    } else if (testCheckResult.value.status === "REJECTED") {
+      testCheckIdempotencyKey.value = "";
+      message.value = "ДПС відхилила тестовий CHK. Перевірте відповідь перед повторною спробою.";
+    } else {
+      message.value = "Результат надсилання тестового CHK неоднозначний. Не повторюйте операцію до звірки з ДПС.";
+    }
+  } catch (e) {
+    error.value = e.message || "Не вдалося підготувати, підписати або надіслати тестовий CHK.";
     message.value = "";
   } finally {
     busy.value = false;
