@@ -25,6 +25,8 @@ const shiftOpenIdempotencyKey = ref("");
 const shiftCloseResult = ref(null);
 const shiftCloseIdempotencyKey = ref("");
 const testCheckResult = ref(null);
+const testCheckPrintData = ref(null);
+const canPrintTestCheck = computed(() => testCheckResult.value?.status === "FISCALIZED" && !!testCheckPrintData.value);
 const testCheckIdempotencyKey = ref("");
 const shiftStateLabel = computed(() => ({ OPEN: "Зміна відкрита", CLOSED: "Зміна закрита", DPS_ERROR: "Помилка відповіді ДПС", RECONCILIATION_REQUIRED: "Потрібна звірка стану" }[shiftStatus.value?.state] || "Стан не перевірено"));
 const selectedBranchName = computed(() => branches.value.find(branch => String(branch.branchNo) === branchNo.value)?.name || props.session.branch?.name || "Філію не визначено");
@@ -107,6 +109,7 @@ async function loadDeviceForBranch() {
   lastCheck.value = null;
   lastCheckError.value = "";
   testCheckResult.value = null;
+  testCheckPrintData.value = null;
   testCheckIdempotencyKey.value = "";
   result.value = null;
   selectedSignerKeyId.value = "";
@@ -483,6 +486,7 @@ async function issueTestCheck() {
   error.value = "";
   message.value = "";
   testCheckResult.value = null;
+  testCheckPrintData.value = null;
 
   const selectedBranch = branchNo.value.trim();
   const number = fiscalNumber.value.trim();
@@ -535,6 +539,12 @@ async function issueTestCheck() {
     });
 
     if (testCheckResult.value.status === "FISCALIZED") {
+      testCheckPrintData.value = {
+        ...prepared,
+        branchName: selectedBranchName.value,
+        deviceName: deviceName.value || "ПРРО",
+        response: testCheckResult.value,
+      };
       testCheckIdempotencyKey.value = "";
       message.value = "Тестовий чек фіскалізовано. Перевіряємо послідовність документів…";
       try {
@@ -565,7 +575,18 @@ async function issueTestCheck() {
   }
 }
 
-async function resetKey() {
+async function formatDpsDateTime(value) {
+  const digits = String(value ?? "");
+  if (!/^\\d{14}$/.test(digits)) return "—";
+  return `${digits.slice(6, 8)}.${digits.slice(4, 6)}.${digits.slice(0, 4)} ${digits.slice(8, 10)}:${digits.slice(10, 12)}:${digits.slice(12, 14)}`;
+}
+
+function printTestCheck() {
+  if (!canPrintTestCheck.value) return;
+  window.print();
+}
+
+function resetKey() {
   error.value = "";
   message.value = "";
   try {
@@ -801,6 +822,10 @@ onBeforeUnmount(() => {
             <div><dt>ID документа ДПС</dt><dd>{{ testCheckResult.fiscalDocumentId || "—" }}</dd></div>
             <div><dt>Код відповіді</dt><dd>{{ testCheckResult.responseCode ?? "—" }}</dd></div>
           </dl>
+          <button v-if="canPrintTestCheck" type="button" class="button-secondary"
+            @click="printTestCheck">
+            Роздрукувати тестовий чек
+          </button>
         </article>
         <article class="prro-panel operation-card">
           <div class="operation-icon">↻</div>
@@ -926,6 +951,48 @@ onBeforeUnmount(() => {
       </div>
     </details>
 
+    <section v-if="testCheckPrintData" class="print-receipt" aria-hidden="true">
+      <header class="print-receipt__header">
+        <strong class="print-receipt__brand">БАГЕТ</strong>
+        <div class="print-receipt__title">КОНТРОЛЬНИЙ ЧЕК</div>
+        <div class="print-receipt__warning">ТЕСТОВИЙ ДОКУМЕНТ<br />НЕ Є ФІСКАЛЬНИМ ЧЕКОМ</div>
+      </header>
+
+      <div class="print-receipt__meta">
+        <div>{{ testCheckPrintData.branchName }}</div>
+        <div>{{ testCheckPrintData.deviceName }}</div>
+        <div>ФН ПРРО: {{ testCheckPrintData.fiscalNumber }}</div>
+        <div>Дата і час: {{ formatDpsDateTime(testCheckPrintData.dpsDateTime) }}</div>
+        <div>Локальний номер: {{ testCheckPrintData.localNumber }}</div>
+      </div>
+
+      <div class="print-receipt__separator"></div>
+      <div class="print-receipt__row">
+        <span>Тестова послуга × 1</span>
+        <span>1,00 грн</span>
+      </div>
+      <div class="print-receipt__row">
+        <span>Оплата: готівка</span>
+        <span>1,00 грн</span>
+      </div>
+      <div class="print-receipt__separator"></div>
+      <div class="print-receipt__total">
+        <strong>СУМА</strong>
+        <strong>1,00 грн</strong>
+      </div>
+
+      <div class="print-receipt__meta print-receipt__footer">
+        <div>TEST · результат тестового сервера ДПС</div>
+        <div>ID документа: {{ testCheckPrintData.response.fiscalDocumentId || "не повернуто" }}</div>
+        <div>Код відповіді: {{ testCheckPrintData.response.responseCode ?? "—" }}</div>
+      </div>
+      <p class="print-receipt__disclaimer">
+        Документ створено в тестовому середовищі. Він не підтверджує оплату,
+        продаж або приймання коштів і не може використовуватися як фіскальний
+        розрахунковий документ.
+      </p>
+    </section>
+
     <div id="iit-widget-overlay" class="iit-widget-overlay" :class="{ visible: widgetVisible }">
       <div class="iit-widget-dialog">
         <div class="iit-widget-title">Підписання КЕП · ІІТ</div>
@@ -984,6 +1051,43 @@ button:disabled { opacity:.48; cursor:not-allowed; }
 .fixture-panel details { display:grid; gap:12px; }.fixture-panel .help-text { margin-top:12px; }.fixture-xml { box-sizing:border-box; width:100%; min-height:200px; margin-top:12px; padding:12px; border:1px solid #cfd6df; border-radius:9px; font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre; }
 .iit-widget-overlay { position:fixed; inset:0; z-index:2000; display:none; align-items:center; justify-content:center; padding:16px; background:#0c1728a8; }.iit-widget-overlay.visible { display:flex; }
 .iit-widget-dialog { display:flex; flex-direction:column; width:min(900px,100%); height:min(800px,92vh); overflow:hidden; border-radius:12px; background:#fff; }.iit-widget-title { padding:12px 16px; border-bottom:1px solid #e0e5eb; font-weight:650; }.iit-widget-parent { flex:1; min-height:0; }
+.print-receipt { display:none; }
+@media print {
+  @page { size:80mm auto; margin:3mm; }
+  :global(body *) { visibility:hidden !important; }
+  .print-receipt,.print-receipt * { visibility:visible !important; }
+  .print-receipt {
+    display:block !important;
+    position:absolute !important;
+    left:0 !important;
+    top:0 !important;
+    width:74mm !important;
+    box-sizing:border-box;
+    margin:0;
+    padding:0;
+    color:#000 !important;
+    background:#fff !important;
+    font-family:Arial,Helvetica,sans-serif;
+    font-size:11px;
+    line-height:1.35;
+  }
+  .print-receipt__header { text-align:center; }
+  .print-receipt__brand { display:block; font-size:20px; letter-spacing:.12em; }
+  .print-receipt__title { margin:4px 0 7px; font-weight:700; }
+  .print-receipt__warning {
+    border:2px solid #000;
+    padding:6px 4px;
+    font-size:13px;
+    font-weight:800;
+    line-height:1.4;
+  }
+  .print-receipt__meta { margin:9px 0; overflow-wrap:anywhere; }
+  .print-receipt__separator { border-top:1px dashed #000; margin:8px 0; }
+  .print-receipt__row,.print-receipt__total { display:flex; justify-content:space-between; gap:8px; }
+  .print-receipt__total { font-size:14px; margin:8px 0; }
+  .print-receipt__footer { font-size:10px; }
+  .print-receipt__disclaimer { margin:10px 0 0; text-align:center; font-size:10px; font-weight:600; }
+}
 @media(max-width:850px) { .operation-grid { grid-template-columns:1fr; }.status-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:600px) { .page-header,.overview-main { flex-direction:column; }.branch-picker { width:100%; }.shift-state { align-self:flex-start; }.primary-actions,.diagnostic-actions { display:grid; grid-template-columns:1fr; }.primary-actions button,.diagnostic-actions button { width:100%; }.status-summary { grid-template-columns:1fr 1fr; }.iit-widget-overlay { padding:0; }.iit-widget-dialog { width:100%; height:100dvh; border-radius:0; } }
 </style>
