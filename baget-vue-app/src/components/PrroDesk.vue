@@ -110,9 +110,9 @@ async function refreshShift() {
     widgetVisible.value = false;
     message.value = "Підпис отримано. Перевіряємо стан каси у ДПС…";
     shiftStatus.value = await getPrroShiftStatus(props.session.token, selectedBranch, number, signatureBase64);
-    if (shiftStatus.value.state === "CLOSED") {
-      selectedSignerKeyId.value = "";
-    } else if (shiftStatus.value.state === "OPEN" && shiftStatus.value.lastSigner
+    // Keep the selected cashier certificate when DPS reports CLOSED.
+    // The read-only status refresh must not clear the signer needed for the next SERVICECHK.
+    if (shiftStatus.value.state === "OPEN" && shiftStatus.value.lastSigner
       && result.value?.operators?.some(operator => operator.serial === shiftStatus.value.lastSigner)) {
       selectedSignerKeyId.value = shiftStatus.value.lastSigner;
     }
