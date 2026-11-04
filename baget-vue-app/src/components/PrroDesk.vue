@@ -71,7 +71,10 @@ function loadConnector() {
 
 async function getWidget() {
   await loadConnector();
-  if (endUser) return endUser;
+  if (endUser) {
+    widgetVisible.value = true;
+    return endUser;
+  }
   widgetVisible.value = true;
   endUser = new window.EndUser(
     "iit-widget-parent",
@@ -727,7 +730,8 @@ onBeforeUnmount(() => {
           Для чеків і Z-звіту використовуйте саме цей сертифікат.
         </small>
         <small v-else>
-          Список отримано з infoRro під час звичайного оновлення стану. Оберіть касира, сертифікат якого потім виберете у віджеті IIT.
+          Список завантажено разом зі станом ПРРО. Це прив’язка до зареєстрованого оператора;
+          фактичний приватний ключ ви окремо обираєте у вікні IIT. Обирайте той самий сертифікат в обох місцях.
         </small>
       </div>
       <p v-else-if="shiftStatus" class="help-text">
