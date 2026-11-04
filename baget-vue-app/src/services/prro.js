@@ -132,3 +132,17 @@ export function submitPrroShiftClose(token, request) {
     body: JSON.stringify(request),
   });
 }
+
+export function preparePrroTestCheck(token, request) {
+  return adminRequest(token, "/api/prro/test-check/prepare", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export function submitPrroTestCheck(token, request) {
+  return adminRequest(token, "/api/prro/test-check/submit", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, preparePrroShiftClose, submitPrroShiftClose } from "../services/prro.js";
+import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, preparePrroShiftClose, submitPrroShiftClose, preparePrroTestCheck, submitPrroTestCheck } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
 const canRunDiagnostics = computed(() => props.session.roles?.some(role => ["ROLE_ADMIN", "ROLE_SENIOR_CASHIER"].includes(role)) === true);
@@ -10,6 +10,7 @@ const deviceName = ref("");
 const branchNo = ref(/^\d+$/.test(String(props.session.branch?.id ?? "")) ? String(props.session.branch.id) : "");
 const shiftStatus = ref(null);
 const lastCheck = ref(null);
+const lastCheckError = ref("");
 const checkedFiscalNumber = ref("");
 const busy = ref(false);
 const error = ref("");
@@ -23,8 +24,33 @@ const shiftOpenResult = ref(null);
 const shiftOpenIdempotencyKey = ref("");
 const shiftCloseResult = ref(null);
 const shiftCloseIdempotencyKey = ref("");
+const testCheckResult = ref(null);
+const testCheckIdempotencyKey = ref("");
 const shiftStateLabel = computed(() => ({ OPEN: "Зміна відкрита", CLOSED: "Зміна закрита", DPS_ERROR: "Помилка відповіді ДПС", RECONCILIATION_REQUIRED: "Потрібна звірка стану" }[shiftStatus.value?.state] || "Стан не перевірено"));
 const selectedBranchName = computed(() => branches.value.find(branch => String(branch.branchNo) === branchNo.value)?.name || props.session.branch?.name || "Філію не визначено");
+const availableOperators = computed(() => (shiftStatus.value?.operators || [])
+  .filter(operator => Number(operator.status) === 1));
+const activeShiftSignerKeyId = computed(() => shiftStatus.value?.activeSignerKeyId
+  || shiftStatus.value?.lastSigner || "");
+const canOpenShift = computed(() => !busy.value
+  && shiftStatus.value?.state === "CLOSED"
+  && shiftStatus.value?.environment === "TEST"
+  && shiftStatus.value?.infoStatus === "OK"
+  && shiftStatus.value?.statusStatus === "OK"
+  && Number(shiftStatus.value?.rroRegistrationStatus) === 1
+  && shiftStatus.value?.online === true
+  && availableOperators.value.some(operator => operator.serial === selectedSignerKeyId.value));
+const canCloseShift = computed(() => !busy.value
+  && shiftStatus.value?.state === "OPEN"
+  && shiftStatus.value?.environment === "TEST"
+  && shiftStatus.value?.infoStatus === "OK"
+  && shiftStatus.value?.statusStatus === "OK"
+  && Number(shiftStatus.value?.rroRegistrationStatus) === 1
+  && shiftStatus.value?.online === true
+  && !!activeShiftSignerKeyId.value
+  && selectedSignerKeyId.value === activeShiftSignerKeyId.value);
+const canCreateTestCheck = computed(() => canCloseShift.value);
+
 const widgetVisible = ref(false);
 let endUser = null;
 let scriptPromise = null;
@@ -45,7 +71,10 @@ function loadConnector() {
 
 async function getWidget() {
   await loadConnector();
-  if (endUser) return endUser;
+  if (endUser) {
+    widgetVisible.value = true;
+    return endUser;
+  }
   widgetVisible.value = true;
   endUser = new window.EndUser(
     "iit-widget-parent",
@@ -76,6 +105,9 @@ async function loadDeviceForBranch() {
   deviceName.value = "";
   shiftStatus.value = null;
   lastCheck.value = null;
+  lastCheckError.value = "";
+  testCheckResult.value = null;
+  testCheckIdempotencyKey.value = "";
   result.value = null;
   selectedSignerKeyId.value = "";
   shiftOpenResult.value = null;
@@ -92,33 +124,92 @@ async function loadDeviceForBranch() {
   }
 }
 
+
+
+function createIdempotencyKey(prefix) {
+  return window.crypto?.randomUUID
+    ? window.crypto.randomUUID()
+    : prefix + "-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+}
+
+function decodeSigningInput(signingInputBase64) {
+  const binary = window.atob(signingInputBase64);
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+async function refreshShiftState(selectedBranch, number, signatureBase64) {
+  const updatedStatus = await getPrroShiftStatus(
+    props.session.token, selectedBranch, number, signatureBase64,
+  );
+  shiftStatus.value = updatedStatus;
+
+  if (updatedStatus.state === "OPEN") {
+    const signer = updatedStatus.activeSignerKeyId || updatedStatus.lastSigner || "";
+    selectedSignerKeyId.value = availableOperators.value.some(operator => operator.serial === signer)
+      ? signer : "";
+  } else if (updatedStatus.state === "CLOSED"
+    && !availableOperators.value.some(operator => operator.serial === selectedSignerKeyId.value)) {
+    selectedSignerKeyId.value = "";
+  }
+
+  lastCheckError.value = "";
+  try {
+    lastCheck.value = await inspectLastPrroCheck(
+      props.session.token, selectedBranch, number, signatureBase64,
+    );
+  } catch (e) {
+    lastCheck.value = null;
+    lastCheckError.value = e.message || "Не вдалося перевірити останній документ ДПС.";
+  }
+  return { status: updatedStatus, lastCheck: lastCheck.value };
+}
+
 async function refreshShift() {
   if (busy.value) return;
-  error.value = ""; message.value = ""; shiftStatus.value = null;
+  error.value = "";
+  message.value = "";
   const number = fiscalNumber.value.trim();
   const selectedBranch = branchNo.value.trim();
-  if (!/^\d{1,10}$/.test(selectedBranch) || Number(selectedBranch) <= 0) { error.value = "Вкажіть коректний номер філії для перевірки ПРРО."; return; }
-  if (!/^\d{1,32}$/.test(number)) { error.value = "Введіть фіскальний номер ПРРО: лише цифри."; return; }
+  if (!/^\d{1,10}$/.test(selectedBranch) || Number(selectedBranch) <= 0) {
+    error.value = "Вкажіть коректний номер філії для перевірки ПРРО.";
+    return;
+  }
+  if (!/^\d{1,32}$/.test(number)) {
+    error.value = "Введіть фіскальний номер ПРРО: лише цифри.";
+    return;
+  }
+
   busy.value = true;
   try {
     message.value = "Завантажуємо віджет ІІТ…";
     const widget = await getWidget();
     message.value = "Зчитайте КЕП касира та підтвердьте підписання номера ПРРО.";
     await widget.ReadPrivateKey();
-    const signatureBase64 = await widget.SignData(number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311);
-    if (typeof signatureBase64 !== "string" || !signatureBase64.length) throw new Error("Віджет ІІТ не повернув підпис у Base64.");
-    widgetVisible.value = false;
-    message.value = "Підпис отримано. Перевіряємо стан каси у ДПС…";
-    shiftStatus.value = await getPrroShiftStatus(props.session.token, selectedBranch, number, signatureBase64);
-    // Keep the selected cashier certificate when DPS reports CLOSED.
-    // The read-only status refresh must not clear the signer needed for the next SERVICECHK.
-    if (shiftStatus.value.state === "OPEN" && shiftStatus.value.lastSigner
-      && result.value?.operators?.some(operator => operator.serial === shiftStatus.value.lastSigner)) {
-      selectedSignerKeyId.value = shiftStatus.value.lastSigner;
+    const signatureBase64 = await widget.SignData(
+      number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof signatureBase64 !== "string" || !signatureBase64.length) {
+      throw new Error("Віджет ІІТ не повернув підпис у Base64.");
     }
-    message.value = "Стан ПРРО отримано від ДПС. Перевірка не змінює стан каси.";
-  } catch (e) { error.value = e.message || "Помилка підписання або перевірки стану ПРРО."; message.value = ""; }
-  finally { busy.value = false; widgetVisible.value = false; }
+    widgetVisible.value = false;
+    message.value = "Підпис отримано. Оновлюємо стан і список касирів із ДПС…";
+    const refreshed = await refreshShiftState(selectedBranch, number, signatureBase64);
+    message.value = refreshed.status.state === "OPEN"
+      ? "Зміна відкрита. Стан і доступні сертифікати оновлено."
+      : refreshed.status.state === "CLOSED"
+        ? "Зміна закрита. Список доступних касирів оновлено."
+        : "Стан ПРРО потребує додаткової звірки.";
+    if (lastCheckError.value) {
+      message.value += " Останній документ не перевірено: " + lastCheckError.value;
+    }
+  } catch (e) {
+    error.value = e.message || "Помилка підписання або перевірки стану ПРРО.";
+    message.value = "";
+  } finally {
+    busy.value = false;
+    widgetVisible.value = false;
+  }
 }
 
 async function inspectLastCheck() {
@@ -126,6 +217,7 @@ async function inspectLastCheck() {
   error.value = "";
   message.value = "";
   lastCheck.value = null;
+  lastCheckError.value = "";
   const number = fiscalNumber.value.trim();
   const selectedBranch = branchNo.value.trim();
   if (!/^\d{1,10}$/.test(selectedBranch) || Number(selectedBranch) <= 0) {
@@ -208,6 +300,7 @@ async function inspect() {
   }
 }
 
+
 async function openShiftOnTest() {
   if (busy.value) return;
   error.value = "";
@@ -217,12 +310,8 @@ async function openShiftOnTest() {
   const selectedBranch = branchNo.value.trim();
   const number = fiscalNumber.value.trim();
   const signerKeyId = selectedSignerKeyId.value.trim();
-  if (shiftStatus.value?.state !== "CLOSED" || shiftStatus.value?.environment !== "TEST") {
-    error.value = "Спочатку перевірте, що вибраний TEST-ПРРО має закриту зміну.";
-    return;
-  }
-  if (!signerKeyId) {
-    error.value = "Спочатку отримайте список операторів через адміністративну діагностику та виберіть сертифікат касира.";
+  if (!canOpenShift.value) {
+    error.value = "Перевірте, що TEST-ПРРО має стан CLOSED і вибрано активного касира.";
     return;
   }
 
@@ -230,21 +319,19 @@ async function openShiftOnTest() {
   try {
     message.value = "Завантажуємо віджет ІІТ…";
     const widget = await getWidget();
-    message.value = "Зчитайте КЕП касира. Спочатку підпишемо фіскальний номер для підготовки XML.";
+    message.value = "Зчитайте КЕП касира. Підпишемо фіскальний номер ПРРО.";
     await widget.ReadPrivateKey();
     const rroSignatureBase64 = await widget.SignData(
       number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
     );
     if (typeof rroSignatureBase64 !== "string" || !rroSignatureBase64.length) {
-      throw new Error("ІIT не повернув підпис фіскального номера.");
+      throw new Error("ІІТ не повернув підпис фіскального номера.");
     }
 
     if (!shiftOpenIdempotencyKey.value) {
-      shiftOpenIdempotencyKey.value = window.crypto?.randomUUID
-        ? window.crypto.randomUUID()
-        : "shift-open-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+      shiftOpenIdempotencyKey.value = createIdempotencyKey("shift-open");
     }
-    message.value = "Baget готує XML SERVICECHK та перевіряє попередній документ у ДПС…";
+    message.value = "Baget готує SERVICECHK та перевіряє попередній документ у ДПС…";
     const prepared = await preparePrroShiftOpen(props.session.token, {
       branchNo: Number(selectedBranch),
       fiscalNumber: number,
@@ -253,31 +340,44 @@ async function openShiftOnTest() {
       idempotencyKey: shiftOpenIdempotencyKey.value,
     });
 
-    const binary = window.atob(prepared.signingInputBase64);
-    const xmlBytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-    const xml = new TextDecoder("utf-8").decode(xmlBytes);
-    message.value = "XML отримано. Підтвердьте його підписання у віджеті IIT…";
+    const xml = decodeSigningInput(prepared.signingInputBase64);
+    message.value = "SERVICECHK сформовано. Підтвердьте підписання XML у віджеті IIT.";
     const signedPayloadBase64 = await widget.SignData(
       xml, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
     );
     if (typeof signedPayloadBase64 !== "string" || !signedPayloadBase64.length) {
-      throw new Error("IIT не повернув підписаний XML у Base64.");
+      throw new Error("ІІТ не повернув підписаний SERVICECHK у Base64.");
     }
 
     widgetVisible.value = false;
-    message.value = "Підпис отримано. Надсилаємо SERVICECHK на тестовий сервер ДПС…";
+    message.value = "Підпис отримано. Надсилаємо SERVICECHK до ДПС…";
     shiftOpenResult.value = await submitPrroShiftOpen(props.session.token, {
       operationId: prepared.operationId,
       signerKeyId,
       signedPayloadBase64,
     });
+
     if (shiftOpenResult.value.status === "FISCALIZED") {
-      message.value = "Тестовий сервер ДПС прийняв SERVICECHK. Перевірте відповідь і стан ПРРО.";
-    } else if (shiftOpenResult.value.status === "REJECTED") {
-      message.value = "ДПС відхилила SERVICECHK. Нижче наведено код і повідомлення відповіді.";
       shiftOpenIdempotencyKey.value = "";
+      message.value = "ДПС прийняла SERVICECHK. Автоматично оновлюємо стан зміни…";
+      try {
+        const refreshed = await refreshShiftState(selectedBranch, number, rroSignatureBase64);
+        const documentMatches = refreshed.lastCheck?.responseStatus === "OK"
+          && refreshed.lastCheck.dataSignSha256 === shiftOpenResult.value.signedPayloadSha256;
+        if (refreshed.status.state === "OPEN" && documentMatches) {
+          message.value = "Зміну відкрито. ДПС підтвердила OPEN, а lastChk збігається з підписаним SERVICECHK.";
+        } else {
+          message.value = "SERVICECHK фіскалізовано, але автоматична звірка стану/lastChk не пройшла. Не продовжуйте операції до перевірки.";
+        }
+      } catch (verificationError) {
+        message.value = "SERVICECHK фіскалізовано, але не вдалося оновити стан каси: "
+          + (verificationError.message || "невідома помилка");
+      }
+    } else if (shiftOpenResult.value.status === "REJECTED") {
+      shiftOpenIdempotencyKey.value = "";
+      message.value = "ДПС відхилила SERVICECHK. Зміна не вважається відкритою.";
     } else {
-      message.value = "Результат надсилання неоднозначний. Повторно не надсилайте — спочатку звіримо стан.";
+      message.value = "Результат SERVICECHK неоднозначний. Не повторюйте надсилання — спочатку звірте стан через statusRro та lastChk.";
     }
   } catch (e) {
     error.value = e.message || "Не вдалося підготувати, підписати або надіслати SERVICECHK.";
@@ -298,12 +398,8 @@ async function closeShiftOnTest() {
   const selectedBranch = branchNo.value.trim();
   const number = fiscalNumber.value.trim();
   const signerKeyId = selectedSignerKeyId.value.trim();
-  if (shiftStatus.value?.state !== "OPEN" || shiftStatus.value?.environment !== "TEST") {
-    error.value = "Спочатку перевірте, що вибраний TEST-ПРРО має відкриту зміну.";
-    return;
-  }
-  if (!signerKeyId) {
-    error.value = "Оберіть сертифікат касира, яким було відкрито цю зміну.";
+  if (!canCloseShift.value) {
+    error.value = "Для закриття потрібна відкрита TEST-зміна та той самий касир, яким її відкрито.";
     return;
   }
 
@@ -317,13 +413,11 @@ async function closeShiftOnTest() {
       number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
     );
     if (typeof rroSignatureBase64 !== "string" || !rroSignatureBase64.length) {
-      throw new Error("ІIT не повернув підпис фіскального номера.");
+      throw new Error("ІІТ не повернув підпис фіскального номера.");
     }
 
     if (!shiftCloseIdempotencyKey.value) {
-      shiftCloseIdempotencyKey.value = window.crypto?.randomUUID
-        ? window.crypto.randomUUID()
-        : "shift-close-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+      shiftCloseIdempotencyKey.value = createIdempotencyKey("shift-close");
     }
     message.value = "Baget перевіряє стан зміни, lastChk та готує ZREPORT…";
     const prepared = await preparePrroShiftClose(props.session.token, {
@@ -334,19 +428,17 @@ async function closeShiftOnTest() {
       idempotencyKey: shiftCloseIdempotencyKey.value,
     });
 
-    const binary = window.atob(prepared.signingInputBase64);
-    const xmlBytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-    const xml = new TextDecoder("utf-8").decode(xmlBytes);
-    message.value = "ZREPORT сформовано. Підтвердьте підписання XML у віджеті IIT…";
+    const xml = decodeSigningInput(prepared.signingInputBase64);
+    message.value = "ZREPORT сформовано. Підтвердьте підписання XML у віджеті IIT.";
     const signedPayloadBase64 = await widget.SignData(
       xml, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
     );
     if (typeof signedPayloadBase64 !== "string" || !signedPayloadBase64.length) {
-      throw new Error("IIT не повернув підписаний ZREPORT у Base64.");
+      throw new Error("ІІТ не повернув підписаний ZREPORT у Base64.");
     }
 
     widgetVisible.value = false;
-    message.value = "Підпис отримано. Надсилаємо ZREPORT на тестовий сервер ДПС…";
+    message.value = "Підпис отримано. Надсилаємо ZREPORT до ДПС…";
     shiftCloseResult.value = await submitPrroShiftClose(props.session.token, {
       operationId: prepared.operationId,
       signerKeyId,
@@ -354,35 +446,118 @@ async function closeShiftOnTest() {
     });
 
     if (shiftCloseResult.value.status === "FISCALIZED") {
-      // A new shift must use new idempotency keys for both open and close operations.
       shiftOpenIdempotencyKey.value = "";
       shiftCloseIdempotencyKey.value = "";
-      message.value = "ZREPORT прийнято. Перевіряємо statusRro та lastChk у ДПС…";
+      message.value = "ZREPORT прийнято. Автоматично перевіряємо закриття зміни…";
       try {
-        const [updatedStatus, updatedLastCheck] = await Promise.all([
-          getPrroShiftStatus(props.session.token, selectedBranch, number, rroSignatureBase64),
-          inspectLastPrroCheck(props.session.token, selectedBranch, number, rroSignatureBase64),
-        ]);
-        shiftStatus.value = updatedStatus;
-        lastCheck.value = updatedLastCheck;
-        if (updatedStatus.state === "CLOSED"
-          && updatedLastCheck.dataSignSha256 === shiftCloseResult.value.signedPayloadSha256) {
-          message.value = "ДПС підтвердила закриття зміни. SHA-256 lastChk збігається з підписаним ZREPORT.";
+        const refreshed = await refreshShiftState(selectedBranch, number, rroSignatureBase64);
+        const documentMatches = refreshed.lastCheck?.responseStatus === "OK"
+          && refreshed.lastCheck.dataSignSha256 === shiftCloseResult.value.signedPayloadSha256;
+        if (refreshed.status.state === "CLOSED" && documentMatches) {
           selectedSignerKeyId.value = "";
+          message.value = "Зміну закрито. ДПС підтвердила CLOSED, а lastChk збігається з підписаним ZREPORT.";
         } else {
-          message.value = "ZREPORT фіскалізовано, але контрольна звірка statusRro/lastChk потребує уваги. Не відкривайте наступну зміну до звірки.";
+          message.value = "ZREPORT фіскалізовано, але автоматична звірка стану/lastChk не пройшла. Не відкривайте наступну зміну до перевірки.";
         }
       } catch (verificationError) {
-        message.value = "ZREPORT фіскалізовано. Не вдалося автоматично завершити контрольну перевірку: "
+        message.value = "ZREPORT фіскалізовано, але не вдалося оновити стан каси: "
           + (verificationError.message || "невідома помилка");
       }
     } else if (shiftCloseResult.value.status === "REJECTED") {
-      message.value = "ДПС відхилила ZREPORT. Зміна залишається відкритою; не повторюйте надсилання без аналізу відповіді.";
+      shiftCloseIdempotencyKey.value = "";
+      message.value = "ДПС відхилила ZREPORT. Зміна залишається відкритою.";
     } else {
-      message.value = "Результат надсилання неоднозначний. Не надсилайте ZREPORT повторно — спочатку звіримо statusRro та lastChk.";
+      message.value = "Результат ZREPORT неоднозначний. Не надсилайте його повторно — спочатку звірте statusRro та lastChk.";
     }
   } catch (e) {
     error.value = e.message || "Не вдалося підготувати, підписати або надіслати ZREPORT.";
+    message.value = "";
+  } finally {
+    busy.value = false;
+    widgetVisible.value = false;
+  }
+}
+
+async function issueTestCheck() {
+  if (busy.value) return;
+  error.value = "";
+  message.value = "";
+  testCheckResult.value = null;
+
+  const selectedBranch = branchNo.value.trim();
+  const number = fiscalNumber.value.trim();
+  const signerKeyId = selectedSignerKeyId.value.trim();
+  if (!canCreateTestCheck.value) {
+    error.value = "Тестовий чек доступний лише у відкритій TEST-зміні, підписаній тим самим касиром.";
+    return;
+  }
+
+  busy.value = true;
+  try {
+    message.value = "Завантажуємо віджет ІІТ…";
+    const widget = await getWidget();
+    message.value = "Зчитайте КЕП касира. Підпишемо фіскальний номер ПРРО.";
+    await widget.ReadPrivateKey();
+    const rroSignatureBase64 = await widget.SignData(
+      number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof rroSignatureBase64 !== "string" || !rroSignatureBase64.length) {
+      throw new Error("ІІТ не повернув підпис фіскального номера.");
+    }
+
+    if (!testCheckIdempotencyKey.value) {
+      testCheckIdempotencyKey.value = createIdempotencyKey("test-check");
+    }
+    message.value = "Baget перевіряє відкриту зміну та готує тестовий CHK на 1,00 грн…";
+    const prepared = await preparePrroTestCheck(props.session.token, {
+      branchNo: Number(selectedBranch),
+      fiscalNumber: number,
+      rroSignatureBase64,
+      signerKeyId,
+      idempotencyKey: testCheckIdempotencyKey.value,
+    });
+
+    const xml = decodeSigningInput(prepared.signingInputBase64);
+    message.value = "Тестовий CHK сформовано. Перевірте суму 1,00 грн і підтвердьте підписання у віджеті IIT.";
+    const signedPayloadBase64 = await widget.SignData(
+      xml, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof signedPayloadBase64 !== "string" || !signedPayloadBase64.length) {
+      throw new Error("ІІТ не повернув підписаний CHK у Base64.");
+    }
+
+    widgetVisible.value = false;
+    message.value = "Підпис отримано. Надсилаємо тестовий CHK до ДПС…";
+    testCheckResult.value = await submitPrroTestCheck(props.session.token, {
+      operationId: prepared.operationId,
+      signerKeyId,
+      signedPayloadBase64,
+    });
+
+    if (testCheckResult.value.status === "FISCALIZED") {
+      testCheckIdempotencyKey.value = "";
+      message.value = "Тестовий чек фіскалізовано. Перевіряємо послідовність документів…";
+      try {
+        const refreshed = await refreshShiftState(selectedBranch, number, rroSignatureBase64);
+        const documentMatches = refreshed.lastCheck?.responseStatus === "OK"
+          && refreshed.lastCheck.dataSignSha256 === testCheckResult.value.signedPayloadSha256;
+        if (refreshed.status.state === "OPEN" && documentMatches) {
+          message.value = "Тестовий чек 1,00 грн фіскалізовано. Зміна залишається OPEN, lastChk підтвердив документ.";
+        } else {
+          message.value = "Тестовий чек фіскалізовано, але звірка statusRro/lastChk потребує уваги. Не надсилайте наступний документ до перевірки.";
+        }
+      } catch (verificationError) {
+        message.value = "Тестовий чек фіскалізовано, але не вдалося оновити стан каси: "
+          + (verificationError.message || "невідома помилка");
+      }
+    } else if (testCheckResult.value.status === "REJECTED") {
+      testCheckIdempotencyKey.value = "";
+      message.value = "ДПС відхилила тестовий CHK. Перевірте відповідь перед повторною спробою.";
+    } else {
+      message.value = "Результат надсилання тестового CHK неоднозначний. Не повторюйте операцію до звірки з ДПС.";
+    }
+  } catch (e) {
+    error.value = e.message || "Не вдалося підготувати, підписати або надіслати тестовий CHK.";
     message.value = "";
   } finally {
     busy.value = false;
@@ -541,35 +716,49 @@ onBeforeUnmount(() => {
         Приватний ключ залишається на комп’ютері касира.
       </p>
 
-      <div v-if="canRunDiagnostics && result?.operators?.length" class="signer-picker">
-        <label for="prro-signer-serial">Підписувач активної зміни</label>
-        <select id="prro-signer-serial" v-model="selectedSignerKeyId" :disabled="busy">
-          <option value="">Оберіть сертифікат касира</option>
-          <option v-for="operator in result.operators" :key="operator.serial" :value="operator.serial">
-            {{ operator.name || "Оператор" }} · {{ operator.serial }} · статус {{ operator.status }}
+      <div v-if="shiftStatus?.operators?.length" class="signer-picker">
+        <label for="prro-signer-serial">Касир / сертифікат ПРРО</label>
+        <select id="prro-signer-serial" v-model="selectedSignerKeyId"
+          :disabled="busy || shiftStatus.state === 'OPEN'">
+          <option value="">Оберіть активного касира</option>
+          <option v-for="operator in availableOperators" :key="operator.serial" :value="operator.serial">
+            {{ operator.name || "Оператор" }}{{ operator.senior ? " · старший касир" : "" }} · {{ operator.serial }}
           </option>
         </select>
-        <small>Для операцій зміни використовується той самий сертифікат, яким її відкрито.</small>
+        <small v-if="shiftStatus.state === 'OPEN'">
+          Підписувач зафіксований під час відкриття зміни: {{ shiftStatus.activeSignerKeyId || shiftStatus.lastSigner }}.
+          Для чеків і Z-звіту використовуйте саме цей сертифікат.
+        </small>
+        <small v-else>
+          Список завантажено разом зі станом ПРРО. Це прив’язка до зареєстрованого оператора;
+          фактичний приватний ключ ви окремо обираєте у вікні IIT. Обирайте той самий сертифікат в обох місцях.
+        </small>
       </div>
+      <p v-else-if="shiftStatus" class="help-text">
+        ДПС не повернула активних операторів. Відкриття зміни та фіскальні операції недоступні.
+      </p>
 
       <div class="primary-actions">
         <button type="button" class="button-primary" :disabled="busy || !branchNo" @click="refreshShift">
           {{ busy ? "Виконується…" : "Підписати та оновити стан" }}
         </button>
         <button type="button" class="button-secondary"
-          :disabled="busy || shiftStatus?.state !== 'CLOSED' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId"
+          :disabled="!canOpenShift"
           @click="openShiftOnTest">
           Відкрити зміну
-        </button>
-        <button type="button" class="button-secondary"
-          :disabled="busy || shiftStatus?.state !== 'OPEN' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId"
-          @click="closeShiftOnTest">
-          Закрити зміну · Z-звіт
         </button>
       </div>
 
       <p v-if="message" role="status" class="feedback feedback-success">{{ message }}</p>
       <p v-if="error" role="alert" class="feedback feedback-error">{{ error }}</p>
+      <p v-if="lastCheckError" role="alert" class="feedback feedback-error">
+        Останній документ не перевірено: {{ lastCheckError }}
+      </p>
+      <div v-if="lastCheck" class="last-check-summary">
+        <span>Останній документ ДПС</span>
+        <strong>{{ lastCheck.fiscalDocumentId || "ID не повернуто" }}</strong>
+        <small>{{ lastCheck.responseStatus }} · {{ lastCheck.dataSignLength }} байт · SHA-256 {{ lastCheck.dataSignSha256 || "—" }}</small>
+      </div>
       <p v-if="shiftStatus?.state === 'RECONCILIATION_REQUIRED'" class="reconciliation-warning" role="alert">
         Стан у ДПС не збігається з локальним станом Baget. Не відкривайте нову зміну та не фіскалізуйте чеки,
         доки операцію не буде звірено.
@@ -582,7 +771,8 @@ onBeforeUnmount(() => {
           <div><dt>Статус infoRro / statusRro</dt><dd>{{ shiftStatus.infoStatus }} / {{ shiftStatus.statusStatus }}</dd></div>
           <div><dt>Реєстрація ПРРО</dt><dd>{{ shiftStatus.rroRegistrationStatus ?? "—" }}</dd></div>
           <div><dt>Локальна операція відкриття</dt><dd>{{ shiftStatus.localShiftPrepared ? "Є" : "Немає" }}</dd></div>
-          <div><dt>Останній підписувач</dt><dd>{{ shiftStatus.lastSigner || "—" }}</dd></div>
+          <div><dt>Підписувач зміни</dt><dd>{{ shiftStatus.activeSignerKeyId || "—" }}</dd></div>
+          <div><dt>Останній підписувач ДПС</dt><dd>{{ shiftStatus.lastSigner || "—" }}</dd></div>
           <div><dt>Повідомлення ДПС</dt><dd>{{ shiftStatus.dpsMessage || "—" }}</dd></div>
         </dl>
       </details>
@@ -599,20 +789,29 @@ onBeforeUnmount(() => {
         <article class="prro-panel operation-card">
           <div class="operation-icon">₴</div>
           <div>
-            <h4>Фіскалізація чека</h4>
-            <p>Фіскалізація нового надходження після збереження оплати в Baget.</p>
+            <h4>Тестовий чек</h4>
+            <p>Фіксований CHK на 1,00 грн: одна тестова послуга, оплата готівкою. Не є фіскалізацією реального платежу Baget.</p>
           </div>
-          <span class="feature-status">Готується</span>
-          <button type="button" class="button-secondary" disabled>Незабаром</button>
+          <span class="feature-status feature-ready">Лише TEST · 1,00 грн</span>
+          <button type="button" class="button-secondary" :disabled="!canCreateTestCheck" @click="issueTestCheck">
+            {{ busy ? "Виконується…" : "Сформувати та фіскалізувати тестовий чек" }}
+          </button>
+          <dl v-if="testCheckResult" class="data-grid operation-result">
+            <div><dt>Статус</dt><dd>{{ testCheckResult.status }}</dd></div>
+            <div><dt>ID документа ДПС</dt><dd>{{ testCheckResult.fiscalDocumentId || "—" }}</dd></div>
+            <div><dt>Код відповіді</dt><dd>{{ testCheckResult.responseCode ?? "—" }}</dd></div>
+          </dl>
         </article>
         <article class="prro-panel operation-card">
           <div class="operation-icon">↻</div>
           <div>
             <h4>Закриття зміни</h4>
-            <p>Формування Z-звіту та закриття активної зміни ПРРО.</p>
+            <p>Формування Z-звіту з підсумків усіх фіскалізованих CHK та закриття активної зміни ПРРО.</p>
           </div>
-          <span class="feature-status feature-ready">Доступно для TEST</span>
-          <small class="operation-hint">Керування зміною — у блоці стану каси вище.</small>
+          <span class="feature-status feature-ready">TEST</span>
+          <button type="button" class="button-secondary" :disabled="!canCloseShift" @click="closeShiftOnTest">
+            {{ busy ? "Виконується…" : "Сформувати Z-звіт і закрити зміну" }}
+          </button>
         </article>
         <article class="prro-panel operation-card">
           <div class="operation-icon">≡</div>
@@ -768,6 +967,7 @@ button:disabled { opacity:.48; cursor:not-allowed; }
 .technical-details { border-top:1px solid #eaecf0; padding-top:12px; }.technical-details summary,.diagnostics-section>summary,.fixture-panel summary { cursor:pointer; color:#475467; font-size:13px; font-weight:650; }
 .data-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:13px 18px; margin:14px 0 0; }
 .data-grid div { min-width:0; }.data-grid dd { margin:4px 0 0; font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+.last-check-summary { display:grid; gap:4px; padding:12px 14px; border:1px solid #d0d5dd; border-radius:9px; background:#f8fafc; }.last-check-summary span,.last-check-summary small { color:#667085; font-size:12px; }.last-check-summary strong { font-size:13px; overflow-wrap:anywhere; }.operation-result { margin-top:0; padding-top:10px; border-top:1px solid #eaecf0; }
 .work-section { display:grid; gap:13px; }.section-heading h3 { margin:0 0 4px; font-size:18px; }
 .operation-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
 .operation-card { display:flex; flex-direction:column; align-items:flex-start; gap:10px; }.operation-icon { display:grid; place-items:center; width:36px; height:36px; border-radius:10px; background:#eef4ff; color:#2456a6; font-size:19px; font-weight:700; }
