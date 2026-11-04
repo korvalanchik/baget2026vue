@@ -651,9 +651,9 @@ function decodeDpsXml(dataSignBase64) {
   // XML markup and the encoding declaration are ASCII, even when the XML
   // body itself is encoded as Windows-1251.
   const asciiPrefix = Array.from(bytes.subarray(0, Math.min(bytes.length, 512)))
-    .map(byte => byte <= 0x7f ? String.fromCharCode(byte) : "\\u0000")
+    .map(byte => byte <= 0x7f ? String.fromCharCode(byte) : "\u0000")
     .join("");
-  if (!/^\\s*(?:<\\?xml\\b|<RQ\\b)/i.test(asciiPrefix)) {
+  if (!/^\s*(?:<\?xml\b|<RQ\b)/i.test(asciiPrefix)) {
     const preview = Array.from(bytes.subarray(0, 12))
       .map(byte => byte.toString(16).padStart(2, "0"))
       .join(" ");
@@ -663,7 +663,7 @@ function decodeDpsXml(dataSignBase64) {
   }
 
   const declaredEncoding = asciiPrefix.match(
-    /<\\?xml[^>]*encoding\\s*=\\s*["']([^"']+)["']/i,
+    /<\?xml[^>]*encoding\s*=\s*["']([^"']+)["']/i,
   )?.[1];
   const candidates = [...new Set([declaredEncoding, "utf-8", "windows-1251"].filter(Boolean))];
   const failures = [];
@@ -671,7 +671,7 @@ function decodeDpsXml(dataSignBase64) {
   for (const encoding of candidates) {
     try {
       const xmlText = new TextDecoder(encoding, { fatal: true }).decode(bytes);
-      if (/^\\uFEFF?\\s*(?:<\\?xml\\b|<RQ\\b)/i.test(xmlText)) return xmlText;
+      if (/^\uFEFF?\s*(?:<\?xml\b|<RQ\b)/i.test(xmlText)) return xmlText;
       failures.push(encoding + ": декодований текст не починається з XML");
     } catch (e) {
       failures.push(encoding + ": " + (e.message || "помилка декодування"));
