@@ -630,9 +630,56 @@ function decodeDpsXml(dataSignBase64) {
   if (typeof dataSignBase64 !== "string" || !dataSignBase64.trim()) {
     throw new Error("ДПС не повернула в lastChk тіло документа data_sign.");
   }
-  const binary = window.atob(dataSignBase64);
-  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+
+  let binary;
+  try {
+    binary = window.atob(dataSignBase64);
+  } catch {
+    throw new Error("Поле data_sign від ДПС містить некоректний Base64.");
+  }
+  let bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+
+  // Respect Unicode BOMs before trying XML-declared encodings.
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    bytes = bytes.subarray(3);
+  } else if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return new TextDecoder("utf-16le", { fatal: true }).decode(bytes.subarray(2));
+  } else if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return new TextDecoder("utf-16be", { fatal: true }).decode(bytes.subarray(2));
+  }
+
+  // XML markup and the encoding declaration are ASCII, even when the XML
+  // body itself is encoded as Windows-1251.
+  const asciiPrefix = Array.from(bytes.subarray(0, Math.min(bytes.length, 512)))
+    .map(byte => byte <= 0x7f ? String.fromCharCode(byte) : "\\u0000")
+    .join("");
+  if (!/^\\s*(?:<\\?xml\\b|<RQ\\b)/i.test(asciiPrefix)) {
+    const preview = Array.from(bytes.subarray(0, 12))
+      .map(byte => byte.toString(16).padStart(2, "0"))
+      .join(" ");
+    throw new Error("data_sign не починається з XML. Перші байти: "
+      + (preview || "порожньо")
+      + ". Потрібно перевірити формат відповіді lastChk, а не декодувати її як текст.");
+  }
+
+  const declaredEncoding = asciiPrefix.match(
+    /<\\?xml[^>]*encoding\\s*=\\s*["']([^"']+)["']/i,
+  )?.[1];
+  const candidates = [...new Set([declaredEncoding, "utf-8", "windows-1251"].filter(Boolean))];
+  const failures = [];
+
+  for (const encoding of candidates) {
+    try {
+      const xmlText = new TextDecoder(encoding, { fatal: true }).decode(bytes);
+      if (/^\\uFEFF?\\s*(?:<\\?xml\\b|<RQ\\b)/i.test(xmlText)) return xmlText;
+      failures.push(encoding + ": декодований текст не починається з XML");
+    } catch (e) {
+      failures.push(encoding + ": " + (e.message || "помилка декодування"));
+    }
+  }
+
+  throw new Error("Не вдалося декодувати data_sign. Перевірені кодування: "
+    + candidates.join(", ") + ". " + failures.join("; "));
 }
 
 function parseDpsReceipt(dataSignBase64) {
