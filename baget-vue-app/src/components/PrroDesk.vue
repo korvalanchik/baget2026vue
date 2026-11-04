@@ -653,7 +653,7 @@ function decodeDpsXml(dataSignBase64) {
   const asciiPrefix = Array.from(bytes.subarray(0, Math.min(bytes.length, 512)))
     .map(byte => byte <= 0x7f ? String.fromCharCode(byte) : "\u0000")
     .join("");
-  if (!/^\s*(?:<\?xml\b|<RQ\b)/i.test(asciiPrefix)) {
+  if (!/^\s*(?:<\?xml\b|<RQ\b|<DAT\b)/i.test(asciiPrefix)) {
     const preview = Array.from(bytes.subarray(0, 12))
       .map(byte => byte.toString(16).padStart(2, "0"))
       .join(" ");
