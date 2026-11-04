@@ -120,6 +120,9 @@ async function loadDeviceForBranch() {
   testCheckResult.value = null;
   testCheckPrintData.value = null;
   testCheckPrintError.value = "";
+  shareDialogVisible.value = false;
+  shareCopied.value = false;
+  sharePhone.value = "";
   testCheckIdempotencyKey.value = "";
   result.value = null;
   selectedSignerKeyId.value = "";
@@ -498,6 +501,9 @@ async function issueTestCheck() {
   testCheckResult.value = null;
   testCheckPrintData.value = null;
   testCheckPrintError.value = "";
+  shareDialogVisible.value = false;
+  shareCopied.value = false;
+  sharePhone.value = "";
 
   const selectedBranch = branchNo.value.trim();
   const number = fiscalNumber.value.trim();
@@ -1108,6 +1114,7 @@ function openReceiptShare() {
   if (!canPrintTestCheck.value || shareBusy.value) return;
   shareDialogVisible.value = true;
   shareCopied.value = false;
+  sharePhone.value = "";
   shareError.value = "";
   shareMessage.value = "";
   shareBusy.value = true;
