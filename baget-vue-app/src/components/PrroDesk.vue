@@ -1169,11 +1169,13 @@ function openTelegramForShare() {
 
 function openViberForShare() {
   if (!canShareWithViber.value) return;
-  // Viber's public desktop deep links target bots, not arbitrary personal
-  // accounts. Launch the installed app and let the cashier find the contact.
-  window.open("viber://", "_blank", "noopener,noreferrer");
-  shareMessage.value = "Знайдіть у Viber контакт за номером " + sharePhone.value
-    + ", перевірте одержувача та вставте чек через Ctrl+V. Якщо Viber не відкрився, запустіть Viber Desktop вручну.";
+  const phone = normalizeSharePhone(sharePhone.value);
+  // Viber Desktop uses the chat URI scheme for opening a personal number.
+  // Encode the leading plus so it is not interpreted as a space in the query.
+  const viberUrl = "viber://chat?number=" + encodeURIComponent("+" + phone);
+  window.open(viberUrl, "_blank", "noopener,noreferrer");
+  shareMessage.value = "Viber має відкрити чат із номером " + sharePhone.value
+    + ". Перевірте одержувача та вставте чек через Ctrl+V. Якщо Viber не відкрився, перевірте, чи встановлено Viber Desktop і чи дозволено браузеру відкривати зовнішні URI-схеми.";
 }
 
 async function resetKey() {
