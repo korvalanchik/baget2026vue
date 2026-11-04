@@ -26,6 +26,7 @@ const shiftCloseResult = ref(null);
 const shiftCloseIdempotencyKey = ref("");
 const testCheckResult = ref(null);
 const testCheckPrintData = ref(null);
+const testCheckPrintError = ref("");
 const canPrintTestCheck = computed(() => testCheckResult.value?.status === "FISCALIZED" && !!testCheckPrintData.value);
 const testCheckIdempotencyKey = ref("");
 const shiftStateLabel = computed(() => ({ OPEN: "Зміна відкрита", CLOSED: "Зміна закрита", DPS_ERROR: "Помилка відповіді ДПС", RECONCILIATION_REQUIRED: "Потрібна звірка стану" }[shiftStatus.value?.state] || "Стан не перевірено"));
@@ -110,6 +111,7 @@ async function loadDeviceForBranch() {
   lastCheckError.value = "";
   testCheckResult.value = null;
   testCheckPrintData.value = null;
+  testCheckPrintError.value = "";
   testCheckIdempotencyKey.value = "";
   result.value = null;
   selectedSignerKeyId.value = "";
@@ -487,6 +489,7 @@ async function issueTestCheck() {
   message.value = "";
   testCheckResult.value = null;
   testCheckPrintData.value = null;
+  testCheckPrintError.value = "";
 
   const selectedBranch = branchNo.value.trim();
   const number = fiscalNumber.value.trim();
@@ -544,38 +547,52 @@ async function issueTestCheck() {
       try {
         const refreshed = await refreshShiftState(selectedBranch, number, rroSignatureBase64);
         const lastCheck = refreshed.lastCheck;
-        // lastChk.data_sign is the original XML, not the IIT-signed CMS payload.
-        // Compare it with the hash of the exact XML supplied to IIT for signing.
-        const documentMatches = lastCheck?.responseStatus === "OK"
-          && lastCheck.fiscalDocumentId === testCheckResult.value.fiscalDocumentId
-          && lastCheck.dataSignSha256 === prepared.signingInputSha256
-          && !!lastCheck.dataSignBase64;
-
-        if (documentMatches) {
-          const dpsReceipt = parseDpsReceipt(lastCheck.dataSignBase64);
-          if (dpsReceipt.fiscalNumber !== number) {
-            throw new Error("Фіскальний номер у документі lastChk не збігається з вибраним ПРРО.");
-          }
-          testCheckPrintData.value = {
-            ...dpsReceipt,
-            branchName: selectedBranchName.value,
-            deviceName: deviceName.value || "ПРРО",
-            fiscalDocumentId: lastCheck.fiscalDocumentId,
-            responseCode: testCheckResult.value.responseCode,
-          };
+        if (!lastCheck) {
+          throw new Error(lastCheckError.value || "Backend не повернув відповідь lastChk.");
+        }
+        if (lastCheck.responseStatus !== "OK") {
+          throw new Error("lastChk повернув статус " + (lastCheck.responseStatus || "невідомий")
+            + (lastCheck.dpsMessage ? ": " + lastCheck.dpsMessage : "."));
+        }
+        if (!testCheckResult.value.fiscalDocumentId
+            || lastCheck.fiscalDocumentId !== testCheckResult.value.fiscalDocumentId) {
+          throw new Error("ID документа lastChk не збігається з ID щойно фіскалізованого чека. "
+            + "Очікується " + (testCheckResult.value.fiscalDocumentId || "—")
+            + ", отримано " + (lastCheck.fiscalDocumentId || "—") + ".");
+        }
+        if (!lastCheck.dataSignBase64) {
+          throw new Error("У відповіді backend немає dataSignBase64. "
+            + "Перевір, чи розгорнуто backend із PR #53.");
         }
 
-        if (refreshed.status.state === "OPEN" && documentMatches) {
-          message.value = "ДПС підтвердила документ через lastChk. Друк доступний: використано оригінальні байти data_sign від ДПС.";
-        } else if (documentMatches) {
-          message.value = "Документ отримано та звірено з ДПС. Але стан зміни потребує уваги; не виконуйте наступні фіскальні операції до звірки.";
+        // lastChk identifies the exact latest document by fiscalDocumentId.
+        // Do not require its data_sign bytes to hash identically to the original
+        // signing input: DPS may return a representation with different bytes.
+        const dpsReceipt = parseDpsReceipt(lastCheck.dataSignBase64);
+        if (dpsReceipt.fiscalNumber !== number) {
+          throw new Error("Фіскальний номер у документі lastChk (" + dpsReceipt.fiscalNumber
+            + ") не збігається з вибраним ПРРО (" + number + ").");
+        }
+        testCheckPrintData.value = {
+          ...dpsReceipt,
+          branchName: selectedBranchName.value,
+          deviceName: deviceName.value || "ПРРО",
+          fiscalDocumentId: lastCheck.fiscalDocumentId,
+          responseCode: testCheckResult.value.responseCode,
+        };
+        testCheckPrintError.value = "";
+
+        if (refreshed.status.state === "OPEN") {
+          message.value = "ДПС повернула той самий документ за ID через lastChk. Друк доступний.";
         } else {
-          message.value = "Чек фіскалізовано, але lastChk не підтвердив збіг ID та SHA-256. Друк вимкнено до звірки.";
+          message.value = "Документ отримано та звірено за ID. Але стан зміни потребує уваги; "
+            + "не виконуйте наступні фіскальні операції до звірки.";
         }
       } catch (verificationError) {
         testCheckPrintData.value = null;
-        message.value = "ДПС прийняла тестовий чек, але не вдалося отримати або розібрати його документ через lastChk: "
-          + (verificationError.message || "невідома помилка");
+        testCheckPrintError.value = verificationError.message || "невідома помилка";
+        message.value = "ДПС прийняла тестовий чек, але друк недоступний: "
+          + testCheckPrintError.value;
       }
     } else if (testCheckResult.value.status === "REJECTED") {
       testCheckIdempotencyKey.value = "";
@@ -932,6 +949,10 @@ onBeforeUnmount(() => {
             <div><dt>ID документа ДПС</dt><dd>{{ testCheckResult.fiscalDocumentId || "—" }}</dd></div>
             <div><dt>Код відповіді</dt><dd>{{ testCheckResult.responseCode ?? "—" }}</dd></div>
           </dl>
+          <p v-if="testCheckResult?.status === 'FISCALIZED' && !canPrintTestCheck && testCheckPrintError"
+            class="feedback feedback-error" role="alert">
+            Друк недоступний: {{ testCheckPrintError }}
+          </p>
           <button v-if="canPrintTestCheck" type="button" class="button-secondary"
             @click="printTestCheck">
             Роздрукувати тестовий чек
