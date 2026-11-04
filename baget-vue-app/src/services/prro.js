@@ -146,3 +146,21 @@ export function submitPrroTestCheck(token, request) {
     body: JSON.stringify(request),
   });
 }
+
+export function getPrroRecentPayments(token, branchNo) {
+  return adminRequest(token, `/api/prro/payments/recent?branchNo=${Number(branchNo)}`);
+}
+
+export function preparePrroPaymentCheck(token, paymentRequestKey, request) {
+  return adminRequest(token, `/api/prro/payments/${encodeURIComponent(paymentRequestKey)}/prepare-check`, {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export function submitPrroPaymentCheck(token, paymentRequestKey, request) {
+  return adminRequest(token, `/api/prro/payments/${encodeURIComponent(paymentRequestKey)}/submit-check`, {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
