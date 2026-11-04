@@ -160,11 +160,11 @@ async function refreshShift() {
   message.value = "";
   const number = fiscalNumber.value.trim();
   const selectedBranch = branchNo.value.trim();
-  if (!/^\\d{1,10}$/.test(selectedBranch) || Number(selectedBranch) <= 0) {
+  if (!/^\d{1,10}$/.test(selectedBranch) || Number(selectedBranch) <= 0) {
     error.value = "Вкажіть коректний номер філії для перевірки ПРРО.";
     return;
   }
-  if (!/^\\d{1,32}$/.test(number)) {
+  if (!/^\d{1,32}$/.test(number)) {
     error.value = "Введіть фіскальний номер ПРРО: лише цифри.";
     return;
   }
@@ -954,6 +954,7 @@ button:disabled { opacity:.48; cursor:not-allowed; }
 .technical-details { border-top:1px solid #eaecf0; padding-top:12px; }.technical-details summary,.diagnostics-section>summary,.fixture-panel summary { cursor:pointer; color:#475467; font-size:13px; font-weight:650; }
 .data-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:13px 18px; margin:14px 0 0; }
 .data-grid div { min-width:0; }.data-grid dd { margin:4px 0 0; font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+.last-check-summary { display:grid; gap:4px; padding:12px 14px; border:1px solid #d0d5dd; border-radius:9px; background:#f8fafc; }.last-check-summary span,.last-check-summary small { color:#667085; font-size:12px; }.last-check-summary strong { font-size:13px; overflow-wrap:anywhere; }.operation-result { margin-top:0; padding-top:10px; border-top:1px solid #eaecf0; }
 .work-section { display:grid; gap:13px; }.section-heading h3 { margin:0 0 4px; font-size:18px; }
 .operation-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
 .operation-card { display:flex; flex-direction:column; align-items:flex-start; gap:10px; }.operation-icon { display:grid; place-items:center; width:36px; height:36px; border-radius:10px; background:#eef4ff; color:#2456a6; font-size:19px; font-weight:700; }
