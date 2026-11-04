@@ -575,9 +575,9 @@ async function issueTestCheck() {
   }
 }
 
-async function formatDpsDateTime(value) {
+function formatDpsDateTime(value) {
   const digits = String(value ?? "");
-  if (!/^\\d{14}$/.test(digits)) return "—";
+  if (!/^\d{14}$/.test(digits)) return "—";
   return `${digits.slice(6, 8)}.${digits.slice(4, 6)}.${digits.slice(0, 4)} ${digits.slice(8, 10)}:${digits.slice(10, 12)}:${digits.slice(12, 14)}`;
 }
 
@@ -586,7 +586,7 @@ function printTestCheck() {
   window.print();
 }
 
-function resetKey() {
+async function resetKey() {
   error.value = "";
   message.value = "";
   try {
