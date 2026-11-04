@@ -626,18 +626,129 @@ function formatDpsMoney(minorUnits) {
   }).format(amount / 100) + " грн";
 }
 
-function decodeDpsXml(dataSignBase64) {
-  if (typeof dataSignBase64 !== "string" || !dataSignBase64.trim()) {
-    throw new Error("ДПС не повернула в lastChk тіло документа data_sign.");
+function readDerElement(bytes, offset, limit = bytes.length) {
+  if (offset < 0 || offset >= limit) {
+    throw new Error("Некоректна структура CMS: неочікуваний кінець ASN.1-елемента.");
+  }
+  const tag = bytes[offset++];
+  if ((tag & 0x1f) === 0x1f) {
+    throw new Error("CMS містить непідтримуваний багатобайтовий ASN.1 tag.");
+  }
+  if (offset >= limit) {
+    throw new Error("Некоректна структура CMS: відсутня довжина ASN.1-елемента.");
   }
 
-  let binary;
-  try {
-    binary = window.atob(dataSignBase64);
-  } catch {
-    throw new Error("Поле data_sign від ДПС містить некоректний Base64.");
+  const firstLength = bytes[offset++];
+  let length = firstLength;
+  if ((firstLength & 0x80) !== 0) {
+    const lengthBytes = firstLength & 0x7f;
+    if (lengthBytes === 0 || lengthBytes > 4 || offset + lengthBytes > limit) {
+      throw new Error("Некоректна DER-довжина ASN.1-елемента.");
+    }
+    length = 0;
+    for (let i = 0; i < lengthBytes; i++) {
+      length = length * 256 + bytes[offset++];
+    }
   }
-  let bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+
+  const contentStart = offset;
+  const contentEnd = contentStart + length;
+  if (!Number.isSafeInteger(contentEnd) || contentEnd > limit) {
+    throw new Error("ASN.1-елемент виходить за межі CMS-контейнера.");
+  }
+  return { tag, contentStart, contentEnd, nextOffset: contentEnd };
+}
+
+function readDerChildren(bytes, element) {
+  const children = [];
+  let offset = element.contentStart;
+  while (offset < element.contentEnd) {
+    const child = readDerElement(bytes, offset, element.contentEnd);
+    children.push(child);
+    offset = child.nextOffset;
+  }
+  if (offset !== element.contentEnd) {
+    throw new Error("Некоректна межа ASN.1-елемента CMS.");
+  }
+  return children;
+}
+
+function derOidHex(bytes, element) {
+  if (!element || element.tag !== 0x06) {
+    throw new Error("У CMS відсутній очікуваний ASN.1 Object Identifier.");
+  }
+  return Array.from(bytes.subarray(element.contentStart, element.contentEnd))
+    .map(byte => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function extractDerOctets(bytes, element) {
+  if (element.tag === 0x04 || element.tag === 0x80) {
+    return bytes.slice(element.contentStart, element.contentEnd);
+  }
+  if (element.tag === 0x24) {
+    const chunks = readDerChildren(bytes, element).map(child => extractDerOctets(bytes, child));
+    const result = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return result;
+  }
+  throw new Error("CMS eContent має неочікуваний тип ASN.1: 0x"
+    + element.tag.toString(16).padStart(2, "0") + ".");
+}
+
+function extractCmsSignedContent(bytes) {
+  const contentInfo = readDerElement(bytes, 0);
+  if (contentInfo.tag !== 0x30 || contentInfo.nextOffset !== bytes.length) {
+    throw new Error("data_sign не є коректним DER ContentInfo CMS.");
+  }
+  const contentInfoChildren = readDerChildren(bytes, contentInfo);
+  const signedDataOid = "2a864886f70d010702";
+  if (derOidHex(bytes, contentInfoChildren[0]) !== signedDataOid) {
+    throw new Error("data_sign є CMS-контейнером, але не типом SignedData.");
+  }
+
+  const explicitContent = contentInfoChildren[1];
+  if (!explicitContent || explicitContent.tag !== 0xa0) {
+    throw new Error("У CMS SignedData відсутня оболонка ContentInfo [0].");
+  }
+  const explicitChildren = readDerChildren(bytes, explicitContent);
+  const signedData = explicitChildren.find(child => child.tag === 0x30);
+  if (!signedData) {
+    throw new Error("У CMS не знайдено структуру SignedData.");
+  }
+
+  const signedDataChildren = readDerChildren(bytes, signedData);
+  // SignedData: version, digestAlgorithms, encapContentInfo, ...
+  const encapsulatedContentInfo = signedDataChildren[2];
+  if (!encapsulatedContentInfo || encapsulatedContentInfo.tag !== 0x30) {
+    throw new Error("У CMS SignedData відсутній encapContentInfo.");
+  }
+  const encapsulatedChildren = readDerChildren(bytes, encapsulatedContentInfo);
+  const dataContentOid = "2a864886f70d010701";
+  if (derOidHex(bytes, encapsulatedChildren[0]) !== dataContentOid) {
+    throw new Error("CMS містить eContent невідомого типу, очікувався PKCS#7 data.");
+  }
+
+  const embeddedContent = encapsulatedChildren[1];
+  if (!embeddedContent || embeddedContent.tag !== 0xa0) {
+    throw new Error("CMS SignedData містить відокремлений підпис без вкладеного XML eContent.");
+  }
+  const embeddedChildren = readDerChildren(bytes, embeddedContent);
+  const octetString = embeddedChildren.find(child =>
+    child.tag === 0x04 || child.tag === 0x24 || child.tag === 0x80);
+  if (!octetString) {
+    throw new Error("У CMS eContent немає OCTET STRING із даними чека.");
+  }
+
+  return extractDerOctets(bytes, octetString);
+}
+
+function decodeDpsXmlBytes(inputBytes) {
+  let bytes = inputBytes;
 
   // Respect Unicode BOMs before trying XML-declared encodings.
   if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
@@ -657,9 +768,8 @@ function decodeDpsXml(dataSignBase64) {
     const preview = Array.from(bytes.subarray(0, 12))
       .map(byte => byte.toString(16).padStart(2, "0"))
       .join(" ");
-    throw new Error("data_sign не починається з XML. Перші байти: "
-      + (preview || "порожньо")
-      + ". Потрібно перевірити формат відповіді lastChk, а не декодувати її як текст.");
+    throw new Error("Вміст CMS eContent не починається з XML. Перші байти: "
+      + (preview || "порожньо") + ".");
   }
 
   const declaredEncoding = asciiPrefix.match(
@@ -671,15 +781,43 @@ function decodeDpsXml(dataSignBase64) {
   for (const encoding of candidates) {
     try {
       const xmlText = new TextDecoder(encoding, { fatal: true }).decode(bytes);
-      if (/^\uFEFF?\s*(?:<\?xml\b|<RQ\b)/i.test(xmlText)) return xmlText;
+      if (/^\uFEFF?\s*(?:<\?xml\b|<RQ\b|<DAT\b)/i.test(xmlText)) return xmlText;
       failures.push(encoding + ": декодований текст не починається з XML");
     } catch (e) {
       failures.push(encoding + ": " + (e.message || "помилка декодування"));
     }
   }
 
-  throw new Error("Не вдалося декодувати data_sign. Перевірені кодування: "
+  throw new Error("Не вдалося декодувати XML із CMS eContent. Перевірені кодування: "
     + candidates.join(", ") + ". " + failures.join("; "));
+}
+
+function decodeDpsXml(dataSignBase64) {
+  if (typeof dataSignBase64 !== "string" || !dataSignBase64.trim()) {
+    throw new Error("ДПС не повернула в lastChk тіло документа data_sign.");
+  }
+
+  let binary;
+  try {
+    binary = window.atob(dataSignBase64);
+  } catch {
+    throw new Error("Поле data_sign від ДПС містить некоректний Base64.");
+  }
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  const asciiPrefix = Array.from(bytes.subarray(0, Math.min(bytes.length, 16)))
+    .map(byte => byte <= 0x7f ? String.fromCharCode(byte) : "\u0000")
+    .join("");
+
+  // Accept plain XML for DPS responses that return it without a CMS wrapper.
+  if (/^\s*(?:<\?xml\b|<RQ\b|<DAT\b)/i.test(asciiPrefix)) {
+    return decodeDpsXmlBytes(bytes);
+  }
+
+  // lastChk.data_sign may be a PKCS#7/CMS SignedData container. Extract only
+  // its encapsulated data; never try to decode the DER signature/certificates
+  // as text.
+  const embeddedXml = extractCmsSignedContent(bytes);
+  return decodeDpsXmlBytes(embeddedXml);
 }
 
 function parseDpsReceipt(dataSignBase64) {
