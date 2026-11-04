@@ -544,9 +544,11 @@ async function issueTestCheck() {
       try {
         const refreshed = await refreshShiftState(selectedBranch, number, rroSignatureBase64);
         const lastCheck = refreshed.lastCheck;
+        // lastChk.data_sign is the original XML, not the IIT-signed CMS payload.
+        // Compare it with the hash of the exact XML supplied to IIT for signing.
         const documentMatches = lastCheck?.responseStatus === "OK"
           && lastCheck.fiscalDocumentId === testCheckResult.value.fiscalDocumentId
-          && lastCheck.dataSignSha256 === testCheckResult.value.signedPayloadSha256
+          && lastCheck.dataSignSha256 === prepared.signingInputSha256
           && !!lastCheck.dataSignBase64;
 
         if (documentMatches) {
