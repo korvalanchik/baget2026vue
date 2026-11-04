@@ -907,7 +907,7 @@ function printTestCheck() {
 }
 
 function wrapReceiptText(context, value, maxWidth) {
-  const words = String(value ?? "").split(/\\s+/).filter(Boolean);
+  const words = String(value ?? "").split(/\s+/).filter(Boolean);
   if (!words.length) return [""];
   const lines = [];
   let line = "";
@@ -1094,14 +1094,14 @@ function copyReceiptImageToClipboard() {
 }
 
 function normalizeSharePhone(value) {
-  let digits = String(value ?? "").replace(/\\D/g, "");
+  let digits = String(value ?? "").replace(/\D/g, "");
   if (digits.startsWith("00")) digits = digits.slice(2);
   if (digits.length === 10 && digits.startsWith("0")) digits = "38" + digits;
   return digits;
 }
 
 function isValidSharePhone(value) {
-  return /^\\d{8,15}$/.test(normalizeSharePhone(value));
+  return /^\d{8,15}$/.test(normalizeSharePhone(value));
 }
 
 function openReceiptShare() {
