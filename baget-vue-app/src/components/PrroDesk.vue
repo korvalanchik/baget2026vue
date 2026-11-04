@@ -28,6 +28,14 @@ const testCheckResult = ref(null);
 const testCheckPrintData = ref(null);
 const testCheckPrintError = ref("");
 const canPrintTestCheck = computed(() => testCheckResult.value?.status === "FISCALIZED" && !!testCheckPrintData.value);
+const shareDialogVisible = ref(false);
+const sharePhone = ref("");
+const shareBusy = ref(false);
+const shareCopied = ref(false);
+const shareError = ref("");
+const shareMessage = ref("");
+const canShareWithTelegram = computed(() => shareCopied.value && isValidSharePhone(sharePhone.value));
+const canShareWithViber = computed(() => shareCopied.value && isValidSharePhone(sharePhone.value));
 const testCheckIdempotencyKey = ref("");
 const shiftStateLabel = computed(() => ({ OPEN: "Зміна відкрита", CLOSED: "Зміна закрита", DPS_ERROR: "Помилка відповіді ДПС", RECONCILIATION_REQUIRED: "Потрібна звірка стану" }[shiftStatus.value?.state] || "Стан не перевірено"));
 const selectedBranchName = computed(() => branches.value.find(branch => String(branch.branchNo) === branchNo.value)?.name || props.session.branch?.name || "Філію не визначено");
@@ -112,6 +120,9 @@ async function loadDeviceForBranch() {
   testCheckResult.value = null;
   testCheckPrintData.value = null;
   testCheckPrintError.value = "";
+  shareDialogVisible.value = false;
+  shareCopied.value = false;
+  sharePhone.value = "";
   testCheckIdempotencyKey.value = "";
   result.value = null;
   selectedSignerKeyId.value = "";
@@ -490,6 +501,9 @@ async function issueTestCheck() {
   testCheckResult.value = null;
   testCheckPrintData.value = null;
   testCheckPrintError.value = "";
+  shareDialogVisible.value = false;
+  shareCopied.value = false;
+  sharePhone.value = "";
 
   const selectedBranch = branchNo.value.trim();
   const number = fiscalNumber.value.trim();
@@ -898,6 +912,270 @@ function printTestCheck() {
   window.print();
 }
 
+function wrapReceiptText(context, value, maxWidth) {
+  const words = String(value ?? "").split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+  const lines = [];
+  let line = "";
+
+  for (const word of words) {
+    const candidate = line ? line + " " + word : word;
+    if (!line || context.measureText(candidate).width <= maxWidth) {
+      line = candidate;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function createReceiptImageBlob(data) {
+  return new Promise((resolve, reject) => {
+    const width = 720;
+    const margin = 44;
+    const contentWidth = width - margin * 2;
+    const measureCanvas = document.createElement("canvas");
+    const measureContext = measureCanvas.getContext("2d");
+    if (!measureContext) {
+      reject(new Error("Браузер не підтримує формування зображення чека."));
+      return;
+    }
+
+    const commands = [];
+    let y = 40;
+
+    function addText(value, font = "20px Arial", options = {}) {
+      const lineHeight = options.lineHeight || 29;
+      const align = options.align || "left";
+      const color = options.color || "#111111";
+      const maxWidth = options.maxWidth || contentWidth;
+      measureContext.font = font;
+      const lines = wrapReceiptText(measureContext, value, maxWidth);
+      for (const line of lines) {
+        y += lineHeight;
+        commands.push({
+          type: "text",
+          text: line,
+          x: align === "center" ? width / 2 : align === "right" ? width - margin : margin,
+          y,
+          font,
+          align,
+          color,
+        });
+      }
+      if (options.after) y += options.after;
+    }
+
+    function addRow(left, right, font = "18px Arial", lineHeight = 27) {
+      measureContext.font = font;
+      const rightWidth = measureContext.measureText(String(right ?? "")).width;
+      const leftWidth = Math.max(100, contentWidth - rightWidth - 20);
+      const lines = wrapReceiptText(measureContext, left, leftWidth);
+      for (let index = 0; index < lines.length; index++) {
+        y += lineHeight;
+        commands.push({
+          type: "text", text: lines[index], x: margin, y, font, align: "left", color: "#111111",
+        });
+        if (index === 0 && right) {
+          commands.push({
+            type: "text", text: String(right), x: width - margin, y, font, align: "right", color: "#111111",
+          });
+        }
+      }
+    }
+
+    function addSeparator() {
+      y += 12;
+      commands.push({ type: "line", x1: margin, x2: width - margin, y, color: "#222222" });
+      y += 16;
+    }
+
+    addText("БАГЕТ", "bold 36px Arial", { align: "center", lineHeight: 44 });
+    addText(data.receiptType || "ЧЕК", "bold 23px Arial", { align: "center", lineHeight: 31, after: 12 });
+
+    const warningTop = y + 2;
+    const warningHeight = 76;
+    commands.push({
+      type: "rect",
+      x: margin,
+      y: warningTop,
+      width: contentWidth,
+      height: warningHeight,
+      color: "#111111",
+    });
+    y = warningTop + 13;
+    addText("ТЕСТОВИЙ ДОКУМЕНТ", "bold 22px Arial", { align: "center", lineHeight: 27 });
+    addText("НЕ Є ФІСКАЛЬНИМ ЧЕКОМ", "bold 20px Arial", { align: "center", lineHeight: 25, color: "#111111" });
+    y = warningTop + warningHeight + 13;
+
+    addText(data.branchName || "Філія", "18px Arial", { lineHeight: 26 });
+    addText(data.deviceName || "ПРРО", "18px Arial", { lineHeight: 26 });
+    addText("ФН ПРРО: " + (data.fiscalNumber || "—"), "18px Arial", { lineHeight: 26 });
+    addText("Чек №: " + (data.receiptNumber || "—"), "18px Arial", { lineHeight: 26 });
+    addText("Дата і час: " + formatDpsDateTime(data.dateTime), "18px Arial", { lineHeight: 26 });
+    if (data.cashierNumber) addText("Касир: " + data.cashierNumber, "18px Arial", { lineHeight: 26 });
+
+    addSeparator();
+    addText("ПОЗИЦІЇ", "bold 17px Arial", { lineHeight: 24 });
+    for (const item of data.items || []) {
+      const itemName = item.name + " × " + item.quantity
+        + (item.taxCode ? " · податок " + item.taxCode : "");
+      addRow(itemName, item.amount, "18px Arial", 27);
+    }
+
+    addSeparator();
+    for (const payment of data.payments || []) {
+      addRow("Оплата: " + payment.name, payment.amount, "18px Arial", 27);
+    }
+    addSeparator();
+    addRow("СУМА", data.total, "bold 24px Arial", 34);
+    y += 8;
+
+    addText("Джерело документа: відповідь ДПС lastChk / data_sign", "15px Arial", { lineHeight: 22 });
+    addText("ID документа ДПС: " + (data.fiscalDocumentId || "—"), "15px Arial", { lineHeight: 22 });
+    addText("Код відповіді: " + (data.responseCode ?? "—"), "15px Arial", { lineHeight: 22, after: 8 });
+    addText(
+      "Документ отримано з тестового середовища ДПС. Він не підтверджує оплату, продаж або приймання коштів і не може використовуватися як фіскальний розрахунковий документ.",
+      "bold 15px Arial",
+      { align: "center", lineHeight: 22, after: 18 },
+    );
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = Math.ceil(y + 32);
+    const context = canvas.getContext("2d");
+    if (!context) {
+      reject(new Error("Не вдалося створити зображення чека."));
+      return;
+    }
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.textBaseline = "top";
+
+    for (const command of commands) {
+      if (command.type === "text") {
+        context.font = command.font;
+        context.fillStyle = command.color;
+        context.textAlign = command.align;
+        context.fillText(command.text, command.x, command.y);
+      } else if (command.type === "line") {
+        context.beginPath();
+        context.setLineDash([7, 5]);
+        context.strokeStyle = command.color;
+        context.lineWidth = 1;
+        context.moveTo(command.x1, command.y);
+        context.lineTo(command.x2, command.y);
+        context.stroke();
+        context.setLineDash([]);
+      } else if (command.type === "rect") {
+        context.strokeStyle = command.color;
+        context.lineWidth = 3;
+        context.strokeRect(command.x, command.y, command.width, command.height);
+      }
+    }
+
+    canvas.toBlob(blob => {
+      if (blob) resolve(blob);
+      else reject(new Error("Браузер не зміг сформувати PNG-зображення чека."));
+    }, "image/png");
+  });
+}
+
+function copyReceiptImageToClipboard() {
+  if (!canPrintTestCheck.value || !testCheckPrintData.value) {
+    throw new Error("Немає перевіреного документа ДПС для копіювання.");
+  }
+  if (!window.isSecureContext || !navigator.clipboard?.write || typeof window.ClipboardItem !== "function") {
+    throw new Error("Копіювання зображення недоступне. Відкрийте Baget через HTTPS у Microsoft Edge або Chrome.");
+  }
+
+  // Pass a promise-backed PNG to ClipboardItem so clipboard.write is invoked
+  // immediately from the user's click handler while transient user activation is available.
+  const imageBlob = createReceiptImageBlob(testCheckPrintData.value);
+  const clipboardItem = new window.ClipboardItem({ "image/png": imageBlob });
+  return navigator.clipboard.write([clipboardItem]);
+}
+
+function normalizeSharePhone(value) {
+  let digits = String(value ?? "").replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.length === 10 && digits.startsWith("0")) digits = "38" + digits;
+  return digits;
+}
+
+function isValidSharePhone(value) {
+  return /^\d{8,15}$/.test(normalizeSharePhone(value));
+}
+
+function openReceiptShare() {
+  if (!canPrintTestCheck.value || shareBusy.value) return;
+  shareDialogVisible.value = true;
+  shareCopied.value = false;
+  sharePhone.value = "";
+  shareError.value = "";
+  shareMessage.value = "";
+  shareBusy.value = true;
+
+  let copyPromise;
+  try {
+    copyPromise = copyReceiptImageToClipboard();
+  } catch (e) {
+    shareError.value = e.message || "Не вдалося скопіювати чек.";
+    shareBusy.value = false;
+    return;
+  }
+
+  copyPromise.then(() => {
+    shareCopied.value = true;
+    shareMessage.value = "Чек скопійовано як PNG-зображення. Відкрийте потрібний месенджер і вставте його через Ctrl+V.";
+  }).catch(e => {
+    shareError.value = e.message || "Не вдалося скопіювати чек у буфер обміну.";
+  }).finally(() => {
+    shareBusy.value = false;
+  });
+}
+
+function copyReceiptAgain() {
+  if (shareBusy.value) return;
+  shareBusy.value = true;
+  shareError.value = "";
+  let copyPromise;
+  try {
+    copyPromise = copyReceiptImageToClipboard();
+  } catch (e) {
+    shareError.value = e.message || "Не вдалося скопіювати чек.";
+    shareBusy.value = false;
+    return;
+  }
+  copyPromise.then(() => {
+    shareCopied.value = true;
+    shareMessage.value = "Чек знову скопійовано. Тепер його можна вставити у відкритий чат через Ctrl+V.";
+  }).catch(e => {
+    shareError.value = e.message || "Не вдалося скопіювати чек у буфер обміну.";
+  }).finally(() => {
+    shareBusy.value = false;
+  });
+}
+
+function openTelegramForShare() {
+  if (!canShareWithTelegram.value) return;
+  const phone = normalizeSharePhone(sharePhone.value);
+  window.open("https://t.me/+" + phone, "_blank", "noopener,noreferrer");
+  shareMessage.value = "Telegram відкриває контакт за номером. Перевірте ім’я одержувача, відкрийте чат і вставте чек через Ctrl+V.";
+}
+
+function openViberForShare() {
+  if (!canShareWithViber.value) return;
+  // Viber's public desktop deep links target bots, not arbitrary personal
+  // accounts. Launch the installed app and let the cashier find the contact.
+  window.open("viber://", "_blank", "noopener,noreferrer");
+  shareMessage.value = "Знайдіть у Viber контакт за номером " + sharePhone.value
+    + ", перевірте одержувача та вставте чек через Ctrl+V. Якщо Viber не відкрився, запустіть Viber Desktop вручну.";
+}
+
 async function resetKey() {
   error.value = "";
   message.value = "";
@@ -1142,6 +1420,10 @@ onBeforeUnmount(() => {
             @click="printTestCheck">
             Роздрукувати тестовий чек
           </button>
+          <button v-if="canPrintTestCheck" type="button" class="button-primary"
+            @click="openReceiptShare">
+            Надіслати чек
+          </button>
         </article>
         <article class="prro-panel operation-card">
           <div class="operation-icon">↻</div>
@@ -1165,6 +1447,48 @@ onBeforeUnmount(() => {
         </article>
       </div>
     </section>
+
+    <div v-if="shareDialogVisible" class="share-overlay" @click.self="shareDialogVisible = false">
+      <section class="share-dialog" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title">
+        <button type="button" class="share-close" aria-label="Закрити" @click="shareDialogVisible = false">×</button>
+        <p class="eyebrow">КОПІЯ ДОКУМЕНТА ДПС</p>
+        <h3 id="share-dialog-title">Надіслати чек</h3>
+        <p class="help-text">
+          Чек копіюється як PNG-зображення. Відкрийте месенджер, виберіть контакт і вставте зображення через Ctrl+V.
+        </p>
+        <div class="share-status" :class="{ 'share-status-error': shareError }" role="status">
+          <span v-if="shareBusy">Готуємо зображення та копіюємо чек…</span>
+          <span v-else-if="shareError">{{ shareError }}</span>
+          <span v-else>{{ shareMessage }}</span>
+        </div>
+        <label for="share-customer-phone">Номер телефону покупця</label>
+        <input id="share-customer-phone" v-model.trim="sharePhone" type="tel"
+          inputmode="tel" autocomplete="tel" placeholder="+380 XX XXX XX XX" />
+        <p class="help-text">
+          Для Telegram номер має бути міжнародним. Для Viber відкриється Viber Desktop, де касир знайде контакт за цим номером.
+        </p>
+        <div class="share-actions">
+          <button type="button" class="button-primary" :disabled="!canShareWithTelegram || shareBusy"
+            @click="openTelegramForShare">
+            <span aria-hidden="true">➤</span> Telegram
+          </button>
+          <button type="button" class="button-secondary" :disabled="!canShareWithViber || shareBusy"
+            @click="openViberForShare">
+            <span aria-hidden="true">●</span> Viber
+          </button>
+        </div>
+        <div class="share-footer">
+          <button type="button" class="button-secondary" :disabled="shareBusy || !canPrintTestCheck"
+            @click="copyReceiptAgain">
+            {{ shareBusy ? "Копіюємо…" : "Скопіювати чек ще раз" }}
+          </button>
+          <button type="button" class="button-secondary" @click="shareDialogVisible = false">Готово</button>
+        </div>
+        <p class="share-disclaimer">
+          Перед відправленням обов’язково перевірте номер і профіль одержувача. Цей документ отримано з тестового середовища ДПС; він не є фіскальним чеком.
+        </p>
+      </section>
+    </div>
 
     <details v-if="canRunDiagnostics" class="diagnostics-section">
       <summary>
@@ -1411,5 +1735,16 @@ button:disabled { opacity:.48; cursor:not-allowed; }
   .print-receipt__disclaimer { margin:10px 0 0; text-align:center; font-size:10px; font-weight:600; }
 }
 @media(max-width:850px) { .operation-grid { grid-template-columns:1fr; }.status-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.share-overlay { position:fixed; inset:0; z-index:2100; display:flex; align-items:center; justify-content:center; padding:16px; background:#0c1728a8; }
+.share-dialog { position:relative; display:grid; gap:12px; width:min(520px,100%); max-height:calc(100dvh - 32px); overflow:auto; box-sizing:border-box; padding:24px; border-radius:14px; background:#fff; box-shadow:0 20px 60px #10182840; }
+.share-dialog h3 { margin:0; font-size:21px; }.share-dialog label { margin-top:5px; font-size:13px; font-weight:650; }
+.share-dialog input { box-sizing:border-box; width:100%; min-height:44px; border:1px solid #cfd6df; border-radius:9px; padding:10px 12px; font:inherit; }
+.share-close { position:absolute; top:10px; right:12px; width:34px; height:34px; border:0; border-radius:8px; background:#f2f4f7; color:#344054; font-size:24px; cursor:pointer; }
+.share-status { padding:11px 12px; border-radius:9px; background:#ecfdf3; color:#067647; font-size:13px; line-height:1.5; }
+.share-status-error { background:#fef3f2; color:#b42318; }.share-actions,.share-footer { display:flex; flex-wrap:wrap; gap:9px; }
+.share-actions button,.share-footer button { min-height:42px; border:0; border-radius:9px; padding:10px 15px; font:inherit; font-size:13px; font-weight:650; cursor:pointer; }
+.share-actions button { flex:1; }.share-footer { justify-content:space-between; border-top:1px solid #eaecf0; padding-top:12px; }
+.share-disclaimer { margin:0; color:#667085; font-size:11px; line-height:1.45; }
+@media(max-width:600px) { .share-overlay { align-items:flex-end; padding:0; }.share-dialog { width:100%; max-height:92dvh; border-radius:16px 16px 0 0; padding:22px 16px; }.share-actions,.share-footer { display:grid; grid-template-columns:1fr; }.share-actions button,.share-footer button { width:100%; } }
 @media(max-width:600px) { .page-header,.overview-main { flex-direction:column; }.branch-picker { width:100%; }.shift-state { align-self:flex-start; }.primary-actions,.diagnostic-actions { display:grid; grid-template-columns:1fr; }.primary-actions button,.diagnostic-actions button { width:100%; }.status-summary { grid-template-columns:1fr 1fr; }.iit-widget-overlay { padding:0; }.iit-widget-dialog { width:100%; height:100dvh; border-radius:0; } }
 </style>
