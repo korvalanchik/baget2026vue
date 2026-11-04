@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, preparePrroShiftClose, submitPrroShiftClose } from "../services/prro.js";
+import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, preparePrroShiftClose, submitPrroShiftClose, preparePrroTestCheck, submitPrroTestCheck } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
 const canRunDiagnostics = computed(() => props.session.roles?.some(role => ["ROLE_ADMIN", "ROLE_SENIOR_CASHIER"].includes(role)) === true);
@@ -10,6 +10,7 @@ const deviceName = ref("");
 const branchNo = ref(/^\d+$/.test(String(props.session.branch?.id ?? "")) ? String(props.session.branch.id) : "");
 const shiftStatus = ref(null);
 const lastCheck = ref(null);
+const lastCheckError = ref("");
 const checkedFiscalNumber = ref("");
 const busy = ref(false);
 const error = ref("");
@@ -23,8 +24,25 @@ const shiftOpenResult = ref(null);
 const shiftOpenIdempotencyKey = ref("");
 const shiftCloseResult = ref(null);
 const shiftCloseIdempotencyKey = ref("");
+const testCheckResult = ref(null);
+const testCheckIdempotencyKey = ref("");
 const shiftStateLabel = computed(() => ({ OPEN: "Зміна відкрита", CLOSED: "Зміна закрита", DPS_ERROR: "Помилка відповіді ДПС", RECONCILIATION_REQUIRED: "Потрібна звірка стану" }[shiftStatus.value?.state] || "Стан не перевірено"));
 const selectedBranchName = computed(() => branches.value.find(branch => String(branch.branchNo) === branchNo.value)?.name || props.session.branch?.name || "Філію не визначено");
+const availableOperators = computed(() => (shiftStatus.value?.operators || [])
+  .filter(operator => Number(operator.status) === 1));
+const activeShiftSignerKeyId = computed(() => shiftStatus.value?.activeSignerKeyId
+  || shiftStatus.value?.lastSigner || "");
+const canOpenShift = computed(() => !busy.value
+  && shiftStatus.value?.state === "CLOSED"
+  && shiftStatus.value?.environment === "TEST"
+  && availableOperators.value.some(operator => operator.serial === selectedSignerKeyId.value));
+const canCloseShift = computed(() => !busy.value
+  && shiftStatus.value?.state === "OPEN"
+  && shiftStatus.value?.environment === "TEST"
+  && !!activeShiftSignerKeyId.value
+  && selectedSignerKeyId.value === activeShiftSignerKeyId.value);
+const canCreateTestCheck = computed(() => canCloseShift.value);
+
 const widgetVisible = ref(false);
 let endUser = null;
 let scriptPromise = null;
@@ -76,6 +94,9 @@ async function loadDeviceForBranch() {
   deviceName.value = "";
   shiftStatus.value = null;
   lastCheck.value = null;
+  lastCheckError.value = "";
+  testCheckResult.value = null;
+  testCheckIdempotencyKey.value = "";
   result.value = null;
   selectedSignerKeyId.value = "";
   shiftOpenResult.value = null;
@@ -92,33 +113,92 @@ async function loadDeviceForBranch() {
   }
 }
 
+
+
+function createIdempotencyKey(prefix) {
+  return window.crypto?.randomUUID
+    ? window.crypto.randomUUID()
+    : prefix + "-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+}
+
+function decodeSigningInput(signingInputBase64) {
+  const binary = window.atob(signingInputBase64);
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+async function refreshShiftState(selectedBranch, number, signatureBase64) {
+  const updatedStatus = await getPrroShiftStatus(
+    props.session.token, selectedBranch, number, signatureBase64,
+  );
+  shiftStatus.value = updatedStatus;
+
+  if (updatedStatus.state === "OPEN") {
+    const signer = updatedStatus.activeSignerKeyId || updatedStatus.lastSigner || "";
+    selectedSignerKeyId.value = availableOperators.value.some(operator => operator.serial === signer)
+      ? signer : "";
+  } else if (updatedStatus.state === "CLOSED"
+    && !availableOperators.value.some(operator => operator.serial === selectedSignerKeyId.value)) {
+    selectedSignerKeyId.value = "";
+  }
+
+  lastCheckError.value = "";
+  try {
+    lastCheck.value = await inspectLastPrroCheck(
+      props.session.token, selectedBranch, number, signatureBase64,
+    );
+  } catch (e) {
+    lastCheck.value = null;
+    lastCheckError.value = e.message || "Не вдалося перевірити останній документ ДПС.";
+  }
+  return { status: updatedStatus, lastCheck: lastCheck.value };
+}
+
 async function refreshShift() {
   if (busy.value) return;
-  error.value = ""; message.value = ""; shiftStatus.value = null;
+  error.value = "";
+  message.value = "";
   const number = fiscalNumber.value.trim();
   const selectedBranch = branchNo.value.trim();
-  if (!/^\d{1,10}$/.test(selectedBranch) || Number(selectedBranch) <= 0) { error.value = "Вкажіть коректний номер філії для перевірки ПРРО."; return; }
-  if (!/^\d{1,32}$/.test(number)) { error.value = "Введіть фіскальний номер ПРРО: лише цифри."; return; }
+  if (!/^\\d{1,10}$/.test(selectedBranch) || Number(selectedBranch) <= 0) {
+    error.value = "Вкажіть коректний номер філії для перевірки ПРРО.";
+    return;
+  }
+  if (!/^\\d{1,32}$/.test(number)) {
+    error.value = "Введіть фіскальний номер ПРРО: лише цифри.";
+    return;
+  }
+
   busy.value = true;
   try {
     message.value = "Завантажуємо віджет ІІТ…";
     const widget = await getWidget();
     message.value = "Зчитайте КЕП касира та підтвердьте підписання номера ПРРО.";
     await widget.ReadPrivateKey();
-    const signatureBase64 = await widget.SignData(number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311);
-    if (typeof signatureBase64 !== "string" || !signatureBase64.length) throw new Error("Віджет ІІТ не повернув підпис у Base64.");
-    widgetVisible.value = false;
-    message.value = "Підпис отримано. Перевіряємо стан каси у ДПС…";
-    shiftStatus.value = await getPrroShiftStatus(props.session.token, selectedBranch, number, signatureBase64);
-    // Keep the selected cashier certificate when DPS reports CLOSED.
-    // The read-only status refresh must not clear the signer needed for the next SERVICECHK.
-    if (shiftStatus.value.state === "OPEN" && shiftStatus.value.lastSigner
-      && result.value?.operators?.some(operator => operator.serial === shiftStatus.value.lastSigner)) {
-      selectedSignerKeyId.value = shiftStatus.value.lastSigner;
+    const signatureBase64 = await widget.SignData(
+      number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof signatureBase64 !== "string" || !signatureBase64.length) {
+      throw new Error("Віджет ІІТ не повернув підпис у Base64.");
     }
-    message.value = "Стан ПРРО отримано від ДПС. Перевірка не змінює стан каси.";
-  } catch (e) { error.value = e.message || "Помилка підписання або перевірки стану ПРРО."; message.value = ""; }
-  finally { busy.value = false; widgetVisible.value = false; }
+    widgetVisible.value = false;
+    message.value = "Підпис отримано. Оновлюємо стан і список касирів із ДПС…";
+    const refreshed = await refreshShiftState(selectedBranch, number, signatureBase64);
+    message.value = refreshed.status.state === "OPEN"
+      ? "Зміна відкрита. Стан і доступні сертифікати оновлено."
+      : refreshed.status.state === "CLOSED"
+        ? "Зміна закрита. Список доступних касирів оновлено."
+        : "Стан ПРРО потребує додаткової звірки.";
+    if (lastCheckError.value) {
+      message.value += " Останній документ не перевірено: " + lastCheckError.value;
+    }
+  } catch (e) {
+    error.value = e.message || "Помилка підписання або перевірки стану ПРРО.";
+    message.value = "";
+  } finally {
+    busy.value = false;
+    widgetVisible.value = false;
+  }
 }
 
 async function inspectLastCheck() {
