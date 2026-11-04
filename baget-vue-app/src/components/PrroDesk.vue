@@ -35,10 +35,18 @@ const activeShiftSignerKeyId = computed(() => shiftStatus.value?.activeSignerKey
 const canOpenShift = computed(() => !busy.value
   && shiftStatus.value?.state === "CLOSED"
   && shiftStatus.value?.environment === "TEST"
+  && shiftStatus.value?.infoStatus === "OK"
+  && shiftStatus.value?.statusStatus === "OK"
+  && Number(shiftStatus.value?.rroRegistrationStatus) === 1
+  && shiftStatus.value?.online === true
   && availableOperators.value.some(operator => operator.serial === selectedSignerKeyId.value));
 const canCloseShift = computed(() => !busy.value
   && shiftStatus.value?.state === "OPEN"
   && shiftStatus.value?.environment === "TEST"
+  && shiftStatus.value?.infoStatus === "OK"
+  && shiftStatus.value?.statusStatus === "OK"
+  && Number(shiftStatus.value?.rroRegistrationStatus) === 1
+  && shiftStatus.value?.online === true
   && !!activeShiftSignerKeyId.value
   && selectedSignerKeyId.value === activeShiftSignerKeyId.value);
 const canCreateTestCheck = computed(() => canCloseShift.value);
@@ -206,6 +214,7 @@ async function inspectLastCheck() {
   error.value = "";
   message.value = "";
   lastCheck.value = null;
+  lastCheckError.value = "";
   const number = fiscalNumber.value.trim();
   const selectedBranch = branchNo.value.trim();
   if (!/^\d{1,10}$/.test(selectedBranch) || Number(selectedBranch) <= 0) {
