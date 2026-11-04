@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, preparePrroShiftClose, submitPrroShiftClose, preparePrroTestCheck, submitPrroTestCheck } from "../services/prro.js";
+import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, preparePrroShiftClose, submitPrroShiftClose, preparePrroTestCheck, submitPrroTestCheck, getPrroRecentPayments, preparePrroPaymentCheck, submitPrroPaymentCheck } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
 const canRunDiagnostics = computed(() => props.session.roles?.some(role => ["ROLE_ADMIN", "ROLE_SENIOR_CASHIER"].includes(role)) === true);
@@ -28,6 +28,9 @@ const testCheckResult = ref(null);
 const testCheckPrintData = ref(null);
 const testCheckPrintError = ref("");
 const canPrintTestCheck = computed(() => testCheckResult.value?.status === "FISCALIZED" && !!testCheckPrintData.value);
+const recentPayments = ref([]);
+const paymentCheckError = ref("");
+const activePaymentRequestKey = ref("");
 const shareDialogVisible = ref(false);
 const sharePhone = ref("");
 const shareBusy = ref(false);
@@ -130,11 +133,15 @@ async function loadDeviceForBranch() {
   shiftOpenIdempotencyKey.value = "";
   shiftCloseResult.value = null;
   shiftCloseIdempotencyKey.value = "";
+  recentPayments.value = [];
+  paymentCheckError.value = "";
+  activePaymentRequestKey.value = "";
   if (!selectedBranch) return;
   try {
     const device = await getPrroDeviceForBranch(props.session.token, selectedBranch);
     fiscalNumber.value = device.fiscalNumber;
     deviceName.value = device.displayName;
+    await loadRecentPayments();
   } catch (e) {
     if (e.status !== 404) error.value = e.message || "Не вдалося завантажити налаштування каси.";
   }
@@ -225,6 +232,143 @@ async function refreshShift() {
   } finally {
     busy.value = false;
     widgetVisible.value = false;
+  }
+}
+
+async function loadRecentPayments() {
+  const selectedBranch = branchNo.value.trim();
+  recentPayments.value = [];
+  paymentCheckError.value = "";
+  if (!selectedBranch) return;
+  try {
+    recentPayments.value = await getPrroRecentPayments(props.session.token, selectedBranch);
+  } catch (e) {
+    paymentCheckError.value = e.message || "Не вдалося завантажити надходження Baget.";
+  }
+}
+
+function paymentOperationLabel(status) {
+  return ({
+    NOT_PREPARED: "Очікує тесту",
+    PREPARED: "Підготовлено",
+    SIGNED: "Підписано",
+    SENDING: "Надсилається",
+    FISCALIZED: "Отримано відповідь ДПС",
+    REJECTED: "Відхилено ДПС",
+    UNKNOWN_RESULT: "Потрібна звірка",
+  })[status] || status || "—";
+}
+
+async function issuePaymentTestCheck(payment) {
+  if (busy.value) return;
+  error.value = "";
+  message.value = "";
+  paymentCheckError.value = "";
+  testCheckResult.value = null;
+  testCheckPrintData.value = null;
+  testCheckPrintError.value = "";
+
+  const selectedBranch = branchNo.value.trim();
+  const number = fiscalNumber.value.trim();
+  const signerKeyId = selectedSignerKeyId.value.trim();
+  if (!canCreateTestCheck.value) {
+    paymentCheckError.value = "Для тесту потрібна відкрита TEST-зміна та сертифікат касира, яким її відкрито.";
+    return;
+  }
+  if (!payment?.paymentRequestKey || !["NOT_PREPARED", "PREPARED"].includes(payment.operationStatus)) {
+    paymentCheckError.value = "Цей платіж уже обробляється або має завершений/неоднозначний результат ПРРО.";
+    return;
+  }
+
+  activePaymentRequestKey.value = payment.paymentRequestKey;
+  busy.value = true;
+  try {
+    message.value = "Завантажуємо віджет ІІТ…";
+    const widget = await getWidget();
+    message.value = "Зчитайте КЕП касира. Підпишемо фіскальний номер ПРРО.";
+    await widget.ReadPrivateKey();
+    const rroSignatureBase64 = await widget.SignData(
+      number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof rroSignatureBase64 !== "string" || !rroSignatureBase64.length) {
+      throw new Error("ІІТ не повернув підпис фіскального номера.");
+    }
+
+    message.value = "Baget перевіряє збережений платіж і готує CHK із фактичної суми надходження…";
+    const prepared = await preparePrroPaymentCheck(props.session.token, payment.paymentRequestKey, {
+      branchNo: Number(selectedBranch),
+      fiscalNumber: number,
+      rroSignatureBase64,
+      signerKeyId,
+    });
+
+    const xml = decodeSigningInput(prepared.signingInputBase64);
+    message.value = "CHK сформовано на основі платежу Baget. Перевірте суму та підтвердьте підписання у віджеті IIT.";
+    const signedPayloadBase64 = await widget.SignData(
+      xml, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof signedPayloadBase64 !== "string" || !signedPayloadBase64.length) {
+      throw new Error("ІІТ не повернув підписаний CHK у Base64.");
+    }
+
+    widgetVisible.value = false;
+    message.value = "Підпис отримано. Надсилаємо тестовий CHK до ДПС…";
+    const submitted = await submitPrroPaymentCheck(props.session.token, payment.paymentRequestKey, {
+      operationId: prepared.operationId,
+      signerKeyId,
+      signedPayloadBase64,
+    });
+    testCheckResult.value = submitted;
+
+    if (submitted.status === "FISCALIZED") {
+      message.value = "ДПС прийняла тестовий чек із надходження Baget. Отримуємо відповідь lastChk…";
+      try {
+        const refreshed = await refreshShiftState(selectedBranch, number, rroSignatureBase64);
+        const lastCheck = refreshed.lastCheck;
+        if (!lastCheck || lastCheck.responseStatus !== "OK") {
+          throw new Error(lastCheckError.value || "Не вдалося отримати підтвердження lastChk.");
+        }
+        if (lastCheck.fiscalDocumentId !== submitted.fiscalDocumentId) {
+          throw new Error("ID документа lastChk не збігається з ID тестового чека, створеного для платежу.");
+        }
+        if (!lastCheck.dataSignBase64) {
+          throw new Error("У відповіді lastChk немає dataSignBase64. Перевірте розгортання backend PR #53.");
+        }
+
+        const dpsReceipt = parseDpsReceipt(lastCheck.dataSignBase64);
+        if (dpsReceipt.fiscalNumber !== number) {
+          throw new Error("Фіскальний номер у lastChk не збігається з вибраним ПРРО.");
+        }
+        testCheckPrintData.value = {
+          ...dpsReceipt,
+          branchName: selectedBranchName.value,
+          deviceName: deviceName.value || "ПРРО",
+          fiscalDocumentId: lastCheck.fiscalDocumentId,
+          responseCode: submitted.responseCode,
+        };
+        testCheckPrintError.value = "";
+        message.value = refreshed.status.state === "OPEN"
+          ? "Тестовий чек за реальним надходженням Baget підтверджено відповіддю ДПС. Друк і копіювання доступні."
+          : "ДПС прийняла чек за надходженням Baget, але стан зміни потребує звірки перед наступною операцією.";
+      } catch (verificationError) {
+        testCheckPrintData.value = null;
+        testCheckPrintError.value = verificationError.message || "невідома помилка";
+        message.value = "Тестовий чек прийнято, але документ lastChk не вдалося підтвердити: "
+          + testCheckPrintError.value;
+      }
+    } else if (submitted.status === "REJECTED") {
+      message.value = "ДПС відхилила тестовий чек платежу Baget. Запис платежу в Baget не змінювався.";
+    } else {
+      message.value = "Результат тестової фіскалізації неоднозначний. Не повторюйте надсилання — спочатку звірте операцію з ДПС.";
+    }
+  } catch (e) {
+    paymentCheckError.value = e.message || "Не вдалося підготувати, підписати або надіслати тестовий чек платежу.";
+    message.value = "";
+  } finally {
+    busy.value = false;
+    widgetVisible.value = false;
+    activePaymentRequestKey.value = "";
+    await loadRecentPayments();
   }
 }
 
@@ -1492,6 +1636,44 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
+    <section class="prro-panel payment-check-panel" aria-labelledby="payment-check-title">
+      <div class="section-heading">
+        <div>
+          <h3 id="payment-check-title">Надходження Baget для тестування ДПС</h3>
+          <p>Реальні суми з підтверджених платежів каси/банку Baget. Фінансові записи не змінюються.</p>
+        </div>
+        <button type="button" class="button-secondary" :disabled="busy || !branchNo" @click="loadRecentPayments">
+          Оновити список
+        </button>
+      </div>
+      <p class="help-text">
+        У тестовий сервер передається лише нове надходження коштів: окремо не дублюється зарахований аванс.
+        Ім’я, телефон та адреса покупця не надсилаються. Номенклатура поки позначається як «Оплата рахунку» або «Аванс»;
+        податковий код «Н» використовується лише як тимчасова тестова схема.
+      </p>
+      <p v-if="paymentCheckError" class="feedback feedback-error" role="alert">{{ paymentCheckError }}</p>
+      <p v-if="!recentPayments.length && !paymentCheckError" class="help-text">
+        Немає доступних підтверджених надходжень із новими коштами для цієї філії.
+      </p>
+      <div v-if="recentPayments.length" class="payment-check-list">
+        <article v-for="payment in recentPayments" :key="payment.paymentRequestKey" class="payment-check-row">
+          <div class="payment-check-copy">
+            <strong>{{ payment.documentLabel }}</strong>
+            <span>{{ payment.createdAt ? new Date(payment.createdAt).toLocaleString("uk-UA") : "Дата невідома" }}</span>
+            <small>{{ payment.paymentName }} · {{ paymentOperationLabel(payment.operationStatus) }}</small>
+          </div>
+          <strong class="payment-check-amount">
+            {{ new Intl.NumberFormat("uk-UA", { style: "currency", currency: "UAH" }).format(Number(payment.amount || 0)) }}
+          </strong>
+          <button type="button" class="button-secondary"
+            :disabled="busy || !canCreateTestCheck || !['NOT_PREPARED', 'PREPARED'].includes(payment.operationStatus)"
+            @click="issuePaymentTestCheck(payment)">
+            {{ activePaymentRequestKey === payment.paymentRequestKey ? "Виконується…" : payment.operationStatus === "PREPARED" ? "Продовжити підготовку" : "Підготувати тестовий чек" }}
+          </button>
+        </article>
+      </div>
+    </section>
+
     <details v-if="canRunDiagnostics" class="diagnostics-section">
       <summary>
         <span><strong>Діагностика та інструменти</strong><small>Технічна інформація ДПС, lastChk та IIT</small></span>
@@ -1690,6 +1872,14 @@ button:disabled { opacity:.48; cursor:not-allowed; }
 .feature-status { color:#667085; font-size:11px; font-weight:650; }.feature-ready { color:#067647; }
 .operation-hint { color:#667085; font-size:12px; line-height:1.4; }
 .operation-card button { width:100%; margin-top:3px; }
+.payment-check-panel { display:grid; gap:13px; }
+.payment-check-list { display:grid; gap:9px; }
+.payment-check-row { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(190px,220px); align-items:center; gap:14px; padding:12px 13px; border:1px solid #e0e5eb; border-radius:10px; background:#fff; }
+.payment-check-copy { display:grid; gap:4px; min-width:0; }
+.payment-check-copy strong { font-size:14px; overflow-wrap:anywhere; }
+.payment-check-copy span,.payment-check-copy small { color:#667085; font-size:12px; }
+.payment-check-amount { white-space:nowrap; font-size:14px; }
+.payment-check-row button { min-height:40px; border:0; border-radius:9px; padding:9px 12px; font:inherit; font-size:12px; font-weight:650; cursor:pointer; }
 .diagnostics-section { border:1px solid #e0e5eb; border-radius:12px; background:#f8fafc; padding:14px 16px; }
 .diagnostics-section>summary { list-style:none; }.diagnostics-section>summary::-webkit-details-marker { display:none; }
 .diagnostics-section>summary span { display:grid; gap:3px; }.diagnostics-section>summary strong { color:#344054; font-size:14px; }.diagnostics-section>summary small { color:#667085; font-size:12px; font-weight:400; }
@@ -1736,7 +1926,7 @@ button:disabled { opacity:.48; cursor:not-allowed; }
   .print-receipt__footer { font-size:10px; }
   .print-receipt__disclaimer { margin:10px 0 0; text-align:center; font-size:10px; font-weight:600; }
 }
-@media(max-width:850px) { .operation-grid { grid-template-columns:1fr; }.status-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:850px) { .operation-grid { grid-template-columns:1fr; }.status-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }.payment-check-row { grid-template-columns:minmax(0,1fr) auto; }.payment-check-row button { grid-column:1 / -1; } }
 .share-overlay { position:fixed; inset:0; z-index:2100; display:flex; align-items:center; justify-content:center; padding:16px; background:#0c1728a8; }
 .share-dialog { position:relative; display:grid; gap:12px; width:min(520px,100%); max-height:calc(100dvh - 32px); overflow:auto; box-sizing:border-box; padding:24px; border-radius:14px; background:#fff; box-shadow:0 20px 60px #10182840; }
 .share-dialog h3 { margin:0; font-size:21px; }.share-dialog label { margin-top:5px; font-size:13px; font-weight:650; }
