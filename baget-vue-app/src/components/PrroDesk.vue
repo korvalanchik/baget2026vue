@@ -704,35 +704,48 @@ onBeforeUnmount(() => {
         Приватний ключ залишається на комп’ютері касира.
       </p>
 
-      <div v-if="canRunDiagnostics && result?.operators?.length" class="signer-picker">
-        <label for="prro-signer-serial">Підписувач активної зміни</label>
-        <select id="prro-signer-serial" v-model="selectedSignerKeyId" :disabled="busy">
-          <option value="">Оберіть сертифікат касира</option>
-          <option v-for="operator in result.operators" :key="operator.serial" :value="operator.serial">
-            {{ operator.name || "Оператор" }} · {{ operator.serial }} · статус {{ operator.status }}
+      <div v-if="shiftStatus?.operators?.length" class="signer-picker">
+        <label for="prro-signer-serial">Касир / сертифікат ПРРО</label>
+        <select id="prro-signer-serial" v-model="selectedSignerKeyId"
+          :disabled="busy || shiftStatus.state === 'OPEN'">
+          <option value="">Оберіть активного касира</option>
+          <option v-for="operator in availableOperators" :key="operator.serial" :value="operator.serial">
+            {{ operator.name || "Оператор" }}{{ operator.senior ? " · старший касир" : "" }} · {{ operator.serial }}
           </option>
         </select>
-        <small>Для операцій зміни використовується той самий сертифікат, яким її відкрито.</small>
+        <small v-if="shiftStatus.state === 'OPEN'">
+          Підписувач зафіксований під час відкриття зміни: {{ shiftStatus.activeSignerKeyId || shiftStatus.lastSigner }}.
+          Для чеків і Z-звіту використовуйте саме цей сертифікат.
+        </small>
+        <small v-else>
+          Список отримано з infoRro під час звичайного оновлення стану. Оберіть касира, сертифікат якого потім виберете у віджеті IIT.
+        </small>
       </div>
+      <p v-else-if="shiftStatus" class="help-text">
+        ДПС не повернула активних операторів. Відкриття зміни та фіскальні операції недоступні.
+      </p>
 
       <div class="primary-actions">
         <button type="button" class="button-primary" :disabled="busy || !branchNo" @click="refreshShift">
           {{ busy ? "Виконується…" : "Підписати та оновити стан" }}
         </button>
         <button type="button" class="button-secondary"
-          :disabled="busy || shiftStatus?.state !== 'CLOSED' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId"
+          :disabled="!canOpenShift"
           @click="openShiftOnTest">
           Відкрити зміну
-        </button>
-        <button type="button" class="button-secondary"
-          :disabled="busy || shiftStatus?.state !== 'OPEN' || shiftStatus?.environment !== 'TEST' || !selectedSignerKeyId"
-          @click="closeShiftOnTest">
-          Закрити зміну · Z-звіт
         </button>
       </div>
 
       <p v-if="message" role="status" class="feedback feedback-success">{{ message }}</p>
       <p v-if="error" role="alert" class="feedback feedback-error">{{ error }}</p>
+      <p v-if="lastCheckError" role="alert" class="feedback feedback-error">
+        Останній документ не перевірено: {{ lastCheckError }}
+      </p>
+      <div v-if="lastCheck" class="last-check-summary">
+        <span>Останній документ ДПС</span>
+        <strong>{{ lastCheck.fiscalDocumentId || "ID не повернуто" }}</strong>
+        <small>{{ lastCheck.responseStatus }} · {{ lastCheck.dataSignLength }} байт · SHA-256 {{ lastCheck.dataSignSha256 || "—" }}</small>
+      </div>
       <p v-if="shiftStatus?.state === 'RECONCILIATION_REQUIRED'" class="reconciliation-warning" role="alert">
         Стан у ДПС не збігається з локальним станом Baget. Не відкривайте нову зміну та не фіскалізуйте чеки,
         доки операцію не буде звірено.
@@ -745,7 +758,8 @@ onBeforeUnmount(() => {
           <div><dt>Статус infoRro / statusRro</dt><dd>{{ shiftStatus.infoStatus }} / {{ shiftStatus.statusStatus }}</dd></div>
           <div><dt>Реєстрація ПРРО</dt><dd>{{ shiftStatus.rroRegistrationStatus ?? "—" }}</dd></div>
           <div><dt>Локальна операція відкриття</dt><dd>{{ shiftStatus.localShiftPrepared ? "Є" : "Немає" }}</dd></div>
-          <div><dt>Останній підписувач</dt><dd>{{ shiftStatus.lastSigner || "—" }}</dd></div>
+          <div><dt>Підписувач зміни</dt><dd>{{ shiftStatus.activeSignerKeyId || "—" }}</dd></div>
+          <div><dt>Останній підписувач ДПС</dt><dd>{{ shiftStatus.lastSigner || "—" }}</dd></div>
           <div><dt>Повідомлення ДПС</dt><dd>{{ shiftStatus.dpsMessage || "—" }}</dd></div>
         </dl>
       </details>
@@ -762,20 +776,29 @@ onBeforeUnmount(() => {
         <article class="prro-panel operation-card">
           <div class="operation-icon">₴</div>
           <div>
-            <h4>Фіскалізація чека</h4>
-            <p>Фіскалізація нового надходження після збереження оплати в Baget.</p>
+            <h4>Тестовий чек</h4>
+            <p>Фіксований CHK на 1,00 грн: одна тестова послуга, оплата готівкою. Не є фіскалізацією реального платежу Baget.</p>
           </div>
-          <span class="feature-status">Готується</span>
-          <button type="button" class="button-secondary" disabled>Незабаром</button>
+          <span class="feature-status feature-ready">Лише TEST · 1,00 грн</span>
+          <button type="button" class="button-secondary" :disabled="!canCreateTestCheck" @click="issueTestCheck">
+            {{ busy ? "Виконується…" : "Сформувати та фіскалізувати тестовий чек" }}
+          </button>
+          <dl v-if="testCheckResult" class="data-grid operation-result">
+            <div><dt>Статус</dt><dd>{{ testCheckResult.status }}</dd></div>
+            <div><dt>ID документа ДПС</dt><dd>{{ testCheckResult.fiscalDocumentId || "—" }}</dd></div>
+            <div><dt>Код відповіді</dt><dd>{{ testCheckResult.responseCode ?? "—" }}</dd></div>
+          </dl>
         </article>
         <article class="prro-panel operation-card">
           <div class="operation-icon">↻</div>
           <div>
             <h4>Закриття зміни</h4>
-            <p>Формування Z-звіту та закриття активної зміни ПРРО.</p>
+            <p>Формування Z-звіту з підсумків усіх фіскалізованих CHK та закриття активної зміни ПРРО.</p>
           </div>
-          <span class="feature-status feature-ready">Доступно для TEST</span>
-          <small class="operation-hint">Керування зміною — у блоці стану каси вище.</small>
+          <span class="feature-status feature-ready">TEST</span>
+          <button type="button" class="button-secondary" :disabled="!canCloseShift" @click="closeShiftOnTest">
+            {{ busy ? "Виконується…" : "Сформувати Z-звіт і закрити зміну" }}
+          </button>
         </article>
         <article class="prro-panel operation-card">
           <div class="operation-icon">≡</div>
