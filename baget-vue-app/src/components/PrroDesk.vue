@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
-import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, preparePrroShiftClose, submitPrroShiftClose, preparePrroTestCheck, submitPrroTestCheck, getPrroRecentPayments, preparePrroPaymentCheck, submitPrroPaymentCheck, getPrroFiscalDocuments, getPrroFiscalDocument } from "../services/prro.js";
+import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, cancelPrroPreparedShiftOpen, preparePrroShiftClose, submitPrroShiftClose, preparePrroTestCheck, submitPrroTestCheck, getPrroRecentPayments, preparePrroPaymentCheck, submitPrroPaymentCheck, getPrroFiscalDocuments, getPrroFiscalDocument } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
 const canRunDiagnostics = computed(() => props.session.roles?.some(role => ["ROLE_ADMIN", "ROLE_SENIOR_CASHIER"].includes(role)) === true);
@@ -73,6 +73,10 @@ const canCloseShift = computed(() => !busy.value
   && selectedSignerKeyId.value === activeShiftSignerKeyId.value);
 const canCreateTestCheck = computed(() => isTestEndpoint.value && canCloseShift.value);
 const canCreatePaymentCheck = computed(() => canCloseShift.value);
+const canCancelPreparedShiftOpen = computed(() => !busy.value
+  && shiftStatus.value?.state === "RECONCILIATION_REQUIRED"
+  && shiftStatus.value?.dpsOpenShift === false
+  && shiftStatus.value?.localShiftPrepared === true);
 
 const widgetVisible = ref(false);
 let endUser = null;
@@ -242,6 +246,63 @@ async function refreshShift() {
     }
   } catch (e) {
     error.value = e.message || "Помилка підписання або перевірки стану ПРРО.";
+    message.value = "";
+  } finally {
+    busy.value = false;
+    widgetVisible.value = false;
+  }
+}
+
+async function cancelPendingShiftOpen() {
+  if (busy.value || !canCancelPreparedShiftOpen.value) return;
+  const selectedBranch = branchNo.value.trim();
+  const number = fiscalNumber.value.trim();
+  if (!selectedBranch || !number) return;
+  const confirmed = window.confirm(
+    "ДПС зараз підтверджує закриту зміну. Скасувати лише незавершену локальну підготовку відкриття? "
+    + "Backend повторно перевірить infoRro/statusRro. Жоден документ до ДПС надсилатися не буде.",
+  );
+  if (!confirmed) return;
+
+  error.value = "";
+  message.value = "";
+  busy.value = true;
+  try {
+    message.value = "Завантажуємо віджет ІІТ для підписання фіскального номера…";
+    const widget = await getWidget();
+    await widget.ReadPrivateKey();
+    const signatureBase64 = await widget.SignData(
+      number, false, true, window.EndUser.SignAlgo.DSTU4145WithGOST34311,
+    );
+    if (typeof signatureBase64 !== "string" || !signatureBase64.length) {
+      throw new Error("ІІТ не повернув підпис фіскального номера.");
+    }
+
+    widgetVisible.value = false;
+    message.value = "Backend повторно перевіряє в ДПС, що обидва статуси зміни — CLOSED…";
+    const cancelled = await cancelPrroPreparedShiftOpen(props.session.token, {
+      branchNo: Number(selectedBranch),
+      fiscalNumber: number,
+      signatureBase64,
+    });
+
+    // The old idempotency key must not be reused for a future, new shift.
+    shiftOpenIdempotencyKey.value = "";
+    shiftOpenResult.value = null;
+    message.value = `Локальну підготовку відкриття #${cancelled.operationId} скасовано. Перевіряємо стан ПРРО…`;
+    try {
+      const refreshed = await refreshShiftState(selectedBranch, number, signatureBase64);
+      if (refreshed.status.state === "CLOSED") {
+        message.value = `Незавершене локальне відкриття #${cancelled.operationId} скасовано. ДПС і Baget тепер узгоджено: зміна закрита.`;
+      } else {
+        message.value += " ДПС не повернула узгоджений стан CLOSED після скасування; не виконуйте фіскальні операції.";
+      }
+    } catch (refreshError) {
+      message.value += " Скасування збережено, але повторно оновити стан не вдалося: "
+        + (refreshError.message || "невідома помилка") + ".";
+    }
+  } catch (e) {
+    error.value = e.message || "Не вдалося скасувати незавершену підготовку відкриття зміни.";
     message.value = "";
   } finally {
     busy.value = false;
@@ -1642,7 +1703,16 @@ onBeforeUnmount(() => {
           @click="openShift">
           Відкрити зміну
         </button>
+        <button v-if="canCancelPreparedShiftOpen" type="button" class="button-secondary"
+          :disabled="busy"
+          @click="cancelPendingShiftOpen">
+          Скасувати незавершене локальне відкриття
+        </button>
       </div>
+      <p v-if="canCancelPreparedShiftOpen" class="reconciliation-warning">
+        Локальна операція відкриття залишилася у PREPARED, але ДПС підтверджує закриту зміну.
+        Скасування дозволене лише після повторної перевірки ДПС на сервері.
+      </p>
 
       <p v-if="message" role="status" class="feedback feedback-success">{{ message }}</p>
       <p v-if="error" role="alert" class="feedback feedback-error">{{ error }}</p>
