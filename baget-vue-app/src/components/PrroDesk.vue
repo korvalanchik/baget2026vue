@@ -144,6 +144,11 @@ async function loadDeviceForBranch() {
   shiftCloseIdempotencyKey.value = "";
   recentPayments.value = [];
   paymentCheckError.value = "";
+  fiscalDocuments.value = [];
+  fiscalDocumentsError.value = "";
+  fiscalDocumentPage.value = 0;
+  fiscalDocumentsHasMore.value = false;
+  openingFiscalDocumentId.value = null;
   activePaymentRequestKey.value = "";
   if (!selectedBranch) return;
   try {
