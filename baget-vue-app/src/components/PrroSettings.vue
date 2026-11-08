@@ -1,11 +1,12 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { getPrroAudit, getPrroBranches, getPrroDevices, savePrroDevice } from "../services/prro.js";
+import { getPrroAudit, getPrroBranches, getPrroDevices, getPrroEndpoint, savePrroDevice } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
 const branches = ref([]);
 const devices = ref([]);
 const audit = ref([]);
+const endpoint = ref(null);
 const loading = ref(false);
 const saving = ref(false);
 const error = ref("");
@@ -15,7 +16,7 @@ const form = ref(emptyForm());
 const hasDevices = computed(() => devices.value.length > 0);
 
 function emptyForm() {
-  return { branchNo: "", fiscalNumber: "", displayName: "", environment: "TEST", enabled: false };
+  return { branchNo: "", fiscalNumber: "", displayName: "", enabled: false };
 }
 function edit(device) {
   editingId.value = device.id;
@@ -23,7 +24,6 @@ function edit(device) {
     branchNo: device.branchNo == null ? "" : String(device.branchNo),
     fiscalNumber: device.fiscalNumber,
     displayName: device.displayName,
-    environment: device.environment,
     enabled: device.enabled,
   };
   error.value = "";
@@ -38,14 +38,16 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const [branchRows, deviceRows, auditRows] = await Promise.all([
+    const [branchRows, deviceRows, auditRows, endpointConfig] = await Promise.all([
       getPrroBranches(props.session.token),
       getPrroDevices(props.session.token),
       getPrroAudit(props.session.token),
+      getPrroEndpoint(props.session.token),
     ]);
     branches.value = branchRows;
     devices.value = deviceRows;
     audit.value = auditRows;
+    endpoint.value = endpointConfig;
   } catch (reason) {
     error.value = reason.message || "Не вдалося завантажити налаштування ПРРО.";
   } finally {
@@ -71,7 +73,6 @@ async function submit() {
       branchNo: form.value.branchNo === "" ? null : Number(form.value.branchNo),
       fiscalNumber,
       displayName,
-      environment: form.value.environment,
       enabled: Boolean(form.value.enabled),
     });
     notice.value = editingId.value ? "Налаштування ПРРО оновлено." : "ПРРО додано.";
@@ -99,7 +100,13 @@ onMounted(load);
       <button type="button" :disabled="loading" @click="load">{{ loading ? "Оновлення…" : "Оновити" }}</button>
     </header>
 
-    <p class="policy-note">На першому етапі дозволено один пристрій на одну філію. Пристрій без філії можна зберегти як чернетку, але активувати його не можна. Середовище пристрою має відповідати endpoint ДПС, налаштованому на backend; саме перемикання endpoint виконується окремою серверною конфігурацією.</p>
+    <p class="policy-note">
+      Сервер ДПС для всієї інсталяції:
+      <strong>{{ endpoint?.mode === "TEST" ? "TEST API" : endpoint?.mode === "PRODUCTION" ? "PRODUCTION API" : endpoint?.mode || "—" }}</strong>
+      <span v-if="endpoint"> · {{ endpoint.host }}:{{ endpoint.port }} · TLS {{ endpoint.tlsEnabled ? "увімкнено" : "вимкнено" }}</span>.
+      Режим задається серверною конфігурацією Cloud Run і не налаштовується окремо для кожної каси.
+      На першому етапі дозволено один пристрій на одну філію. Пристрій без філії можна зберегти як чернетку, але активувати його не можна.
+    </p>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="notice" role="status">{{ notice }}</p>
 
@@ -111,7 +118,7 @@ onMounted(load);
         <div class="device-main">
           <strong>{{ device.displayName }}</strong>
           <span>{{ branchLabel(device) }} · ФН {{ device.fiscalNumber }}</span>
-          <small>{{ device.environment }} · Наступний локальний № {{ device.nextLocalNumber }}</small>
+          <small>Наступний локальний № {{ device.nextLocalNumber }}</small>
         </div>
         <div class="device-state">
           <span :class="['state', device.enabled ? 'active' : 'inactive']">{{ device.enabled ? "Активний" : "Вимкнений" }}</span>
@@ -138,15 +145,9 @@ onMounted(load);
         <label>Назва каси
           <input v-model="form.displayName" maxlength="120" placeholder="Каса філії">
         </label>
-        <label>Середовище
-          <select v-model="form.environment">
-            <option value="TEST">Тестове</option>
-            <option value="PRODUCTION">Бойове</option>
-          </select>
-        </label>
       </div>
       <label class="enabled-control"><input v-model="form.enabled" type="checkbox"> Активувати пристрій</label>
-      <p class="form-hint">Зміна філії, фіскального номера або середовища заблокована під час відкритої зміни та за наявності невизначених фіскальних операцій.</p>
+      <p class="form-hint">Зміна філії або фіскального номера заблокована під час відкритої зміни та за наявності невизначених фіскальних операцій. TEST/PRODUCTION endpoint налаштовується один раз для всього backend.</p>
       <div class="form-actions">
         <button class="primary" type="submit" :disabled="saving">{{ saving ? "Зберігаємо…" : editingId ? "Зберегти зміни" : "Додати ПРРО" }}</button>
         <button v-if="editingId" type="button" :disabled="saving" @click="resetForm">Скасувати</button>

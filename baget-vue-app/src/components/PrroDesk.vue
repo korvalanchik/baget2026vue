@@ -25,9 +25,9 @@ const shiftOpenIdempotencyKey = ref("");
 const shiftCloseResult = ref(null);
 const shiftCloseIdempotencyKey = ref("");
 const testCheckResult = ref(null);
-const testCheckPrintData = ref(null);
-const testCheckPrintError = ref("");
-const canPrintTestCheck = computed(() => testCheckResult.value?.status === "FISCALIZED" && !!testCheckPrintData.value);
+const receiptPrintData = ref(null);
+const receiptPrintError = ref("");
+const canPrintReceipt = computed(() => testCheckResult.value?.status === "FISCALIZED" && !!receiptPrintData.value);
 const recentPayments = ref([]);
 const paymentCheckError = ref("");
 const activePaymentRequestKey = ref("");
@@ -46,9 +46,9 @@ const availableOperators = computed(() => (shiftStatus.value?.operators || [])
   .filter(operator => Number(operator.status) === 1));
 const activeShiftSignerKeyId = computed(() => shiftStatus.value?.activeSignerKeyId
   || shiftStatus.value?.lastSigner || "");
+const isTestEndpoint = computed(() => shiftStatus.value?.endpointMode === "TEST");
 const canOpenShift = computed(() => !busy.value
   && shiftStatus.value?.state === "CLOSED"
-  && shiftStatus.value?.environment === "TEST"
   && shiftStatus.value?.infoStatus === "OK"
   && shiftStatus.value?.statusStatus === "OK"
   && Number(shiftStatus.value?.rroRegistrationStatus) === 1
@@ -56,14 +56,14 @@ const canOpenShift = computed(() => !busy.value
   && availableOperators.value.some(operator => operator.serial === selectedSignerKeyId.value));
 const canCloseShift = computed(() => !busy.value
   && shiftStatus.value?.state === "OPEN"
-  && shiftStatus.value?.environment === "TEST"
   && shiftStatus.value?.infoStatus === "OK"
   && shiftStatus.value?.statusStatus === "OK"
   && Number(shiftStatus.value?.rroRegistrationStatus) === 1
   && shiftStatus.value?.online === true
   && !!activeShiftSignerKeyId.value
   && selectedSignerKeyId.value === activeShiftSignerKeyId.value);
-const canCreateTestCheck = computed(() => canCloseShift.value);
+const canCreateTestCheck = computed(() => isTestEndpoint.value && canCloseShift.value);
+const canCreatePaymentCheck = computed(() => canCloseShift.value);
 
 const widgetVisible = ref(false);
 let endUser = null;
@@ -121,8 +121,8 @@ async function loadDeviceForBranch() {
   lastCheck.value = null;
   lastCheckError.value = "";
   testCheckResult.value = null;
-  testCheckPrintData.value = null;
-  testCheckPrintError.value = "";
+  receiptPrintData.value = null;
+  receiptPrintError.value = "";
   shareDialogVisible.value = false;
   shareCopied.value = false;
   sharePhone.value = "";
@@ -259,20 +259,20 @@ function paymentOperationLabel(status) {
   })[status] || status || "—";
 }
 
-async function issuePaymentTestCheck(payment) {
+async function issuePaymentCheck(payment) {
   if (busy.value) return;
   error.value = "";
   message.value = "";
   paymentCheckError.value = "";
   testCheckResult.value = null;
-  testCheckPrintData.value = null;
-  testCheckPrintError.value = "";
+  receiptPrintData.value = null;
+  receiptPrintError.value = "";
 
   const selectedBranch = branchNo.value.trim();
   const number = fiscalNumber.value.trim();
   const signerKeyId = selectedSignerKeyId.value.trim();
-  if (!canCreateTestCheck.value) {
-    paymentCheckError.value = "Для тесту потрібна відкрита TEST-зміна та сертифікат касира, яким її відкрито.";
+  if (!canCreatePaymentCheck.value) {
+    paymentCheckError.value = "Для формування чека потрібна відкрита зміна та сертифікат касира, яким її відкрито.";
     return;
   }
   if (!payment?.paymentRequestKey || !["NOT_PREPARED", "PREPARED"].includes(payment.operationStatus)) {
@@ -312,7 +312,9 @@ async function issuePaymentTestCheck(payment) {
     }
 
     widgetVisible.value = false;
-    message.value = "Підпис отримано. Надсилаємо тестовий CHK до ДПС…";
+    message.value = isTestEndpoint.value
+      ? "Підпис отримано. Надсилаємо тестовий CHK до ДПС…"
+      : "Підпис отримано. Надсилаємо фіскальний CHK до ДПС…";
     const submitted = await submitPrroPaymentCheck(props.session.token, payment.paymentRequestKey, {
       operationId: prepared.operationId,
       signerKeyId,
@@ -321,7 +323,9 @@ async function issuePaymentTestCheck(payment) {
     testCheckResult.value = submitted;
 
     if (submitted.status === "FISCALIZED") {
-      message.value = "ДПС прийняла тестовий чек із надходження Baget. Отримуємо відповідь lastChk…";
+      message.value = isTestEndpoint.value
+        ? "ДПС прийняла тестовий чек із надходження Baget. Отримуємо відповідь lastChk…"
+        : "ДПС прийняла фіскальний чек за надходженням Baget. Отримуємо відповідь lastChk…";
       try {
         const refreshed = await refreshShiftState(selectedBranch, number, rroSignatureBase64);
         const lastCheck = refreshed.lastCheck;
@@ -329,7 +333,7 @@ async function issuePaymentTestCheck(payment) {
           throw new Error(lastCheckError.value || "Не вдалося отримати підтвердження lastChk.");
         }
         if (lastCheck.fiscalDocumentId !== submitted.fiscalDocumentId) {
-          throw new Error("ID документа lastChk не збігається з ID тестового чека, створеного для платежу.");
+          throw new Error("ID документа lastChk не збігається з ID чека, створеного для платежу.");
         }
         if (!lastCheck.dataSignBase64) {
           throw new Error("У відповіді lastChk немає dataSignBase64. Перевірте розгортання backend PR #53.");
@@ -339,30 +343,38 @@ async function issuePaymentTestCheck(payment) {
         if (dpsReceipt.fiscalNumber !== number) {
           throw new Error("Фіскальний номер у lastChk не збігається з вибраним ПРРО.");
         }
-        testCheckPrintData.value = {
+        receiptPrintData.value = {
           ...dpsReceipt,
           branchName: selectedBranchName.value,
           deviceName: deviceName.value || "ПРРО",
           fiscalDocumentId: lastCheck.fiscalDocumentId,
           responseCode: submitted.responseCode,
+          isTestDocument: isTestEndpoint.value,
         };
-        testCheckPrintError.value = "";
+        receiptPrintError.value = "";
         message.value = refreshed.status.state === "OPEN"
-          ? "Тестовий чек за реальним надходженням Baget підтверджено відповіддю ДПС. Друк і копіювання доступні."
+          ? (isTestEndpoint.value
+            ? "Тестовий чек за реальним надходженням Baget підтверджено відповіддю ДПС. Друк і копіювання доступні."
+            : "Фіскальний чек за надходженням Baget підтверджено відповіддю ДПС. Друк і копіювання доступні.")
           : "ДПС прийняла чек за надходженням Baget, але стан зміни потребує звірки перед наступною операцією.";
       } catch (verificationError) {
-        testCheckPrintData.value = null;
-        testCheckPrintError.value = verificationError.message || "невідома помилка";
-        message.value = "Тестовий чек прийнято, але документ lastChk не вдалося підтвердити: "
-          + testCheckPrintError.value;
+        receiptPrintData.value = null;
+        receiptPrintError.value = verificationError.message || "невідома помилка";
+        message.value = (isTestEndpoint.value
+          ? "Тестовий чек прийнято"
+          : "Фіскальний чек прийнято")
+          + ", але документ lastChk не вдалося підтвердити: " + receiptPrintError.value;
       }
     } else if (submitted.status === "REJECTED") {
-      message.value = "ДПС відхилила тестовий чек платежу Baget. Запис платежу в Baget не змінювався.";
+      message.value = (isTestEndpoint.value
+        ? "ДПС відхилила тестовий чек"
+        : "ДПС відхилила фіскальний чек")
+        + " платежу Baget. Запис платежу в Baget не змінювався.";
     } else {
-      message.value = "Результат тестової фіскалізації неоднозначний. Не повторюйте надсилання — спочатку звірте операцію з ДПС.";
+      message.value = "Результат фіскалізації неоднозначний. Не повторюйте надсилання — спочатку звірте операцію з ДПС.";
     }
   } catch (e) {
-    paymentCheckError.value = e.message || "Не вдалося підготувати, підписати або надіслати тестовий чек платежу.";
+    paymentCheckError.value = e.message || "Не вдалося підготувати, підписати або надіслати чек платежу.";
     message.value = "";
   } finally {
     busy.value = false;
@@ -461,7 +473,7 @@ async function inspect() {
 }
 
 
-async function openShiftOnTest() {
+async function openShift() {
   if (busy.value) return;
   error.value = "";
   message.value = "";
@@ -471,7 +483,7 @@ async function openShiftOnTest() {
   const number = fiscalNumber.value.trim();
   const signerKeyId = selectedSignerKeyId.value.trim();
   if (!canOpenShift.value) {
-    error.value = "Перевірте, що TEST-ПРРО має стан CLOSED і вибрано активного касира.";
+    error.value = "Перевірте, що ПРРО має стан CLOSED і вибрано активного касира.";
     return;
   }
 
@@ -549,7 +561,7 @@ async function openShiftOnTest() {
 }
 
 
-async function closeShiftOnTest() {
+async function closeShift() {
   if (busy.value) return;
   error.value = "";
   message.value = "";
@@ -559,7 +571,7 @@ async function closeShiftOnTest() {
   const number = fiscalNumber.value.trim();
   const signerKeyId = selectedSignerKeyId.value.trim();
   if (!canCloseShift.value) {
-    error.value = "Для закриття потрібна відкрита TEST-зміна та той самий касир, яким її відкрито.";
+    error.value = "Для закриття потрібна відкрита зміна та той самий касир, яким її відкрито.";
     return;
   }
 
@@ -639,12 +651,12 @@ async function closeShiftOnTest() {
 }
 
 async function issueTestCheck() {
-  if (busy.value) return;
+  if (busy.value || !isTestEndpoint.value) return;
   error.value = "";
   message.value = "";
   testCheckResult.value = null;
-  testCheckPrintData.value = null;
-  testCheckPrintError.value = "";
+  receiptPrintData.value = null;
+  receiptPrintError.value = "";
   shareDialogVisible.value = false;
   shareCopied.value = false;
   sharePhone.value = "";
@@ -653,7 +665,7 @@ async function issueTestCheck() {
   const number = fiscalNumber.value.trim();
   const signerKeyId = selectedSignerKeyId.value.trim();
   if (!canCreateTestCheck.value) {
-    error.value = "Тестовий чек доступний лише у відкритій TEST-зміні, підписаній тим самим касиром.";
+    error.value = "Синтетичний чек доступний лише на TEST API у відкритій зміні, підписаній тим самим касиром.";
     return;
   }
 
@@ -731,14 +743,15 @@ async function issueTestCheck() {
           throw new Error("Фіскальний номер у документі lastChk (" + dpsReceipt.fiscalNumber
             + ") не збігається з вибраним ПРРО (" + number + ").");
         }
-        testCheckPrintData.value = {
+        receiptPrintData.value = {
           ...dpsReceipt,
           branchName: selectedBranchName.value,
           deviceName: deviceName.value || "ПРРО",
           fiscalDocumentId: lastCheck.fiscalDocumentId,
           responseCode: testCheckResult.value.responseCode,
+          isTestDocument: isTestEndpoint.value,
         };
-        testCheckPrintError.value = "";
+        receiptPrintError.value = "";
 
         if (refreshed.status.state === "OPEN") {
           message.value = "ДПС повернула той самий документ за ID через lastChk. Друк доступний.";
@@ -747,10 +760,12 @@ async function issueTestCheck() {
             + "не виконуйте наступні фіскальні операції до звірки.";
         }
       } catch (verificationError) {
-        testCheckPrintData.value = null;
-        testCheckPrintError.value = verificationError.message || "невідома помилка";
-        message.value = "ДПС прийняла тестовий чек, але друк недоступний: "
-          + testCheckPrintError.value;
+        receiptPrintData.value = null;
+        receiptPrintError.value = verificationError.message || "невідома помилка";
+        message.value = (isTestEndpoint.value
+          ? "ДПС прийняла тестовий чек, але друк недоступний: "
+          : "ДПС прийняла фіскальний чек, але друк недоступний: ")
+          + receiptPrintError.value;
       }
     } else if (testCheckResult.value.status === "REJECTED") {
       testCheckIdempotencyKey.value = "";
@@ -1051,8 +1066,8 @@ function parseDpsReceipt(dataSignBase64) {
   };
 }
 
-function printTestCheck() {
-  if (!canPrintTestCheck.value) return;
+function printReceipt() {
+  if (!canPrintReceipt.value) return;
   window.print();
 }
 
@@ -1140,19 +1155,23 @@ function createReceiptImageBlob(data) {
     addText(data.receiptType || "ЧЕК", "bold 23px Arial", { align: "center", lineHeight: 31, after: 12 });
 
     const warningTop = y + 2;
-    const warningHeight = 76;
-    commands.push({
-      type: "rect",
-      x: margin,
-      y: warningTop,
-      width: contentWidth,
-      height: warningHeight,
-      color: "#111111",
-    });
-    y = warningTop + 13;
-    addText("ТЕСТОВИЙ ДОКУМЕНТ", "bold 22px Arial", { align: "center", lineHeight: 27 });
-    addText("НЕ Є ФІСКАЛЬНИМ ЧЕКОМ", "bold 20px Arial", { align: "center", lineHeight: 25, color: "#111111" });
-    y = warningTop + warningHeight + 13;
+    if (data.isTestDocument) {
+      const warningHeight = 76;
+      commands.push({
+        type: "rect",
+        x: margin,
+        y: warningTop,
+        width: contentWidth,
+        height: warningHeight,
+        color: "#111111",
+      });
+      y = warningTop + 13;
+      addText("ТЕСТОВИЙ ДОКУМЕНТ", "bold 22px Arial", { align: "center", lineHeight: 27 });
+      addText("НЕ Є ФІСКАЛЬНИМ ЧЕКОМ", "bold 20px Arial", { align: "center", lineHeight: 25, color: "#111111" });
+      y = warningTop + warningHeight + 13;
+    } else {
+      addText("КОПІЯ ФІСКАЛЬНОГО ЧЕКА", "bold 20px Arial", { align: "center", lineHeight: 28, after: 10 });
+    }
 
     addText(data.branchName || "Філія", "18px Arial", { lineHeight: 26 });
     addText(data.deviceName || "ПРРО", "18px Arial", { lineHeight: 26 });
@@ -1181,7 +1200,9 @@ function createReceiptImageBlob(data) {
     addText("ID документа ДПС: " + (data.fiscalDocumentId || "—"), "15px Arial", { lineHeight: 22 });
     addText("Код відповіді: " + (data.responseCode ?? "—"), "15px Arial", { lineHeight: 22, after: 8 });
     addText(
-      "Документ отримано з тестового середовища ДПС. Він не підтверджує оплату, продаж або приймання коштів і не може використовуватися як фіскальний розрахунковий документ.",
+      data.isTestDocument
+        ? "Документ отримано з тестового середовища ДПС. Він не підтверджує оплату, продаж або приймання коштів і не може використовуватися як фіскальний розрахунковий документ."
+        : "Копію сформовано за даними документа, отриманого від production API ДПС.",
       "bold 15px Arial",
       { align: "center", lineHeight: 22, after: 18 },
     );
@@ -1229,7 +1250,7 @@ function createReceiptImageBlob(data) {
 }
 
 function copyReceiptImageToClipboard() {
-  if (!canPrintTestCheck.value || !testCheckPrintData.value) {
+  if (!canPrintReceipt.value || !receiptPrintData.value) {
     throw new Error("Немає перевіреного документа ДПС для копіювання.");
   }
   if (!window.isSecureContext || !navigator.clipboard?.write || typeof window.ClipboardItem !== "function") {
@@ -1238,7 +1259,7 @@ function copyReceiptImageToClipboard() {
 
   // Pass a promise-backed PNG to ClipboardItem so clipboard.write is invoked
   // immediately from the user's click handler while transient user activation is available.
-  const imageBlob = createReceiptImageBlob(testCheckPrintData.value);
+  const imageBlob = createReceiptImageBlob(receiptPrintData.value);
   const clipboardItem = new window.ClipboardItem({ "image/png": imageBlob });
   return navigator.clipboard.write([clipboardItem]);
 }
@@ -1255,7 +1276,7 @@ function isValidSharePhone(value) {
 }
 
 function openReceiptShare() {
-  if (!canPrintTestCheck.value || shareBusy.value) return;
+  if (!canPrintReceipt.value || shareBusy.value) return;
   shareDialogVisible.value = true;
   shareCopied.value = false;
   sharePhone.value = "";
@@ -1462,7 +1483,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="shiftStatus" class="status-summary">
-        <div><span>Середовище</span><strong>{{ shiftStatus.environment || "—" }}</strong></div>
+        <div><span>Сервер ДПС</span><strong>{{ shiftStatus.endpointMode === "TEST" ? "TEST API" : shiftStatus.endpointMode === "PRODUCTION" ? "PRODUCTION API" : shiftStatus.endpointMode || "—" }}</strong></div>
         <div><span>Зв’язок із ДПС</span><strong>{{ shiftStatus.online ? "Онлайн" : "Офлайн" }}</strong></div>
         <div><span>Зміна за ДПС</span><strong>{{ shiftStatus.dpsOpenShift ? "Відкрита" : "Закрита" }}</strong></div>
         <div><span>Наступний номер</span><strong>{{ shiftStatus.nextLocalNumber ?? "—" }}</strong></div>
@@ -1501,7 +1522,7 @@ onBeforeUnmount(() => {
         </button>
         <button type="button" class="button-secondary"
           :disabled="!canOpenShift"
-          @click="openShiftOnTest">
+          @click="openShift">
           Відкрити зміну
         </button>
       </div>
@@ -1543,7 +1564,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="operation-grid">
-        <article class="prro-panel operation-card">
+        <article v-if="isTestEndpoint" class="prro-panel operation-card">
           <div class="operation-icon">₴</div>
           <div>
             <h4>Тестовий чек</h4>
@@ -1558,15 +1579,15 @@ onBeforeUnmount(() => {
             <div><dt>ID документа ДПС</dt><dd>{{ testCheckResult.fiscalDocumentId || "—" }}</dd></div>
             <div><dt>Код відповіді</dt><dd>{{ testCheckResult.responseCode ?? "—" }}</dd></div>
           </dl>
-          <p v-if="testCheckResult?.status === 'FISCALIZED' && !canPrintTestCheck && testCheckPrintError"
+          <p v-if="testCheckResult?.status === 'FISCALIZED' && !canPrintReceipt && receiptPrintError"
             class="feedback feedback-error" role="alert">
-            Друк недоступний: {{ testCheckPrintError }}
+            Друк недоступний: {{ receiptPrintError }}
           </p>
-          <button v-if="canPrintTestCheck" type="button" class="button-secondary"
-            @click="printTestCheck">
-            Роздрукувати тестовий чек
+          <button v-if="canPrintReceipt" type="button" class="button-secondary"
+            @click="printReceipt">
+            {{ receiptPrintData.isTestDocument ? "Роздрукувати тестовий чек" : "Роздрукувати фіскальний чек" }}
           </button>
-          <button v-if="canPrintTestCheck" type="button" class="button-primary"
+          <button v-if="canPrintReceipt" type="button" class="button-primary"
             @click="openReceiptShare">
             Надіслати чек
           </button>
@@ -1577,8 +1598,8 @@ onBeforeUnmount(() => {
             <h4>Закриття зміни</h4>
             <p>Формування Z-звіту з підсумків усіх фіскалізованих CHK та закриття активної зміни ПРРО.</p>
           </div>
-          <span class="feature-status feature-ready">TEST</span>
-          <button type="button" class="button-secondary" :disabled="!canCloseShift" @click="closeShiftOnTest">
+          <span class="feature-status feature-ready">{{ isTestEndpoint ? "TEST API" : "PRODUCTION API" }}</span>
+          <button type="button" class="button-secondary" :disabled="!canCloseShift" @click="closeShift">
             {{ busy ? "Виконується…" : "Сформувати Z-звіт і закрити зміну" }}
           </button>
         </article>
@@ -1624,14 +1645,15 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div class="share-footer">
-          <button type="button" class="button-secondary" :disabled="shareBusy || !canPrintTestCheck"
+          <button type="button" class="button-secondary" :disabled="shareBusy || !canPrintReceipt"
             @click="copyReceiptAgain">
             {{ shareBusy ? "Копіюємо…" : "Скопіювати чек ще раз" }}
           </button>
           <button type="button" class="button-secondary" @click="shareDialogVisible = false">Готово</button>
         </div>
         <p class="share-disclaimer">
-          Перед відправленням обов’язково перевірте номер і профіль одержувача. Цей документ отримано з тестового середовища ДПС; він не є фіскальним чеком.
+          Перед відправленням обов’язково перевірте номер і профіль одержувача.
+          {{ isTestEndpoint ? "Це документ із тестового середовища ДПС, він не є фіскальним чеком." : "Це електронна копія документа, отриманого від production API ДПС." }}
         </p>
       </section>
     </div>
@@ -1639,7 +1661,7 @@ onBeforeUnmount(() => {
     <section class="prro-panel payment-check-panel" aria-labelledby="payment-check-title">
       <div class="section-heading">
         <div>
-          <h3 id="payment-check-title">Надходження Baget для тестування ДПС</h3>
+          <h3 id="payment-check-title">Надходження Baget для фіскалізації</h3>
           <p>Реальні суми з підтверджених платежів каси/банку Baget. Фінансові записи не змінюються.</p>
         </div>
         <button type="button" class="button-secondary" :disabled="busy || !branchNo" @click="loadRecentPayments">
@@ -1647,9 +1669,8 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <p class="help-text">
-        У тестовий сервер передається лише нове надходження коштів: окремо не дублюється зарахований аванс.
-        Ім’я, телефон та адреса покупця не надсилаються. Номенклатура поки позначається як «Оплата рахунку» або «Аванс»;
-        податковий код «Н» використовується лише як тимчасова тестова схема.
+        {{ isTestEndpoint ? "У TEST API надсилається лише нове надходження коштів: окремо не дублюється зарахований аванс." : "У production API надсилається лише нове надходження коштів: окремо не дублюється зарахований аванс." }}
+        Ім’я, телефон та адреса покупця не надсилаються. Податкову ознаку позицій задає серверна конфігурація Baget.
       </p>
       <p v-if="paymentCheckError" class="feedback feedback-error" role="alert">{{ paymentCheckError }}</p>
       <p v-if="!recentPayments.length && !paymentCheckError" class="help-text">
@@ -1666,9 +1687,9 @@ onBeforeUnmount(() => {
             {{ new Intl.NumberFormat("uk-UA", { style: "currency", currency: "UAH" }).format(Number(payment.amount || 0)) }}
           </strong>
           <button type="button" class="button-secondary"
-            :disabled="busy || !canCreateTestCheck || !['NOT_PREPARED', 'PREPARED'].includes(payment.operationStatus)"
-            @click="issuePaymentTestCheck(payment)">
-            {{ activePaymentRequestKey === payment.paymentRequestKey ? "Виконується…" : payment.operationStatus === "PREPARED" ? "Продовжити підготовку" : "Підготувати тестовий чек" }}
+            :disabled="busy || !canCreatePaymentCheck || !['NOT_PREPARED', 'PREPARED'].includes(payment.operationStatus)"
+            @click="issuePaymentCheck(payment)">
+            {{ activePaymentRequestKey === payment.paymentRequestKey ? "Виконується…" : payment.operationStatus === "PREPARED" ? "Продовжити підготовку" : isTestEndpoint ? "Підготувати тестовий чек" : "Підготувати фіскальний чек" }}
           </button>
         </article>
       </div>
@@ -1775,24 +1796,25 @@ onBeforeUnmount(() => {
       </div>
     </details>
 
-    <section v-if="testCheckPrintData" class="print-receipt" aria-hidden="true">
+    <section v-if="receiptPrintData" class="print-receipt" aria-hidden="true">
       <header class="print-receipt__header">
         <strong class="print-receipt__brand">БАГЕТ</strong>
-        <div class="print-receipt__title">{{ testCheckPrintData.receiptType }}</div>
-        <div class="print-receipt__warning">ТЕСТОВИЙ ДОКУМЕНТ<br />НЕ Є ФІСКАЛЬНИМ ЧЕКОМ</div>
+        <div class="print-receipt__title">{{ receiptPrintData.receiptType }}</div>
+        <div v-if="receiptPrintData.isTestDocument" class="print-receipt__warning">ТЕСТОВИЙ ДОКУМЕНТ<br />НЕ Є ФІСКАЛЬНИМ ЧЕКОМ</div>
+      <div v-else class="print-receipt__warning">КОПІЯ ФІСКАЛЬНОГО ЧЕКА</div>
       </header>
 
       <div class="print-receipt__meta">
-        <div>{{ testCheckPrintData.branchName }}</div>
-        <div>{{ testCheckPrintData.deviceName }}</div>
-        <div>ФН ПРРО: {{ testCheckPrintData.fiscalNumber }}</div>
-        <div>Чек №: {{ testCheckPrintData.receiptNumber }}</div>
-        <div>Дата і час: {{ formatDpsDateTime(testCheckPrintData.dateTime) }}</div>
-        <div v-if="testCheckPrintData.cashierNumber">Касир: {{ testCheckPrintData.cashierNumber }}</div>
+        <div>{{ receiptPrintData.branchName }}</div>
+        <div>{{ receiptPrintData.deviceName }}</div>
+        <div>ФН ПРРО: {{ receiptPrintData.fiscalNumber }}</div>
+        <div>Чек №: {{ receiptPrintData.receiptNumber }}</div>
+        <div>Дата і час: {{ formatDpsDateTime(receiptPrintData.dateTime) }}</div>
+        <div v-if="receiptPrintData.cashierNumber">Касир: {{ receiptPrintData.cashierNumber }}</div>
       </div>
 
       <div class="print-receipt__separator"></div>
-      <div v-for="item in testCheckPrintData.items" :key="item.key" class="print-receipt__row">
+      <div v-for="item in receiptPrintData.items" :key="item.key" class="print-receipt__row">
         <span>
           {{ item.name }} × {{ item.quantity }}
           <small v-if="item.taxCode"> · податок {{ item.taxCode }}</small>
@@ -1801,25 +1823,25 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="print-receipt__separator"></div>
-      <div v-for="payment in testCheckPrintData.payments" :key="payment.key" class="print-receipt__row">
+      <div v-for="payment in receiptPrintData.payments" :key="payment.key" class="print-receipt__row">
         <span>Оплата: {{ payment.name }}</span>
         <span>{{ payment.amount }}</span>
       </div>
       <div class="print-receipt__separator"></div>
       <div class="print-receipt__total">
         <strong>СУМА</strong>
-        <strong>{{ testCheckPrintData.total }}</strong>
+        <strong>{{ receiptPrintData.total }}</strong>
       </div>
 
       <div class="print-receipt__meta print-receipt__footer">
         <div>Джерело документа: відповідь ДПС lastChk / data_sign</div>
-        <div>ID документа ДПС: {{ testCheckPrintData.fiscalDocumentId }}</div>
-        <div>Код відповіді: {{ testCheckPrintData.responseCode ?? "—" }}</div>
+        <div>ID документа ДПС: {{ receiptPrintData.fiscalDocumentId }}</div>
+        <div>Код відповіді: {{ receiptPrintData.responseCode ?? "—" }}</div>
       </div>
       <p class="print-receipt__disclaimer">
-        Документ отримано з тестового середовища ДПС. Він не підтверджує оплату,
-        продаж або приймання коштів і не може використовуватися як фіскальний
-        розрахунковий документ.
+        {{ receiptPrintData.isTestDocument
+          ? "Документ отримано з тестового середовища ДПС. Він не підтверджує оплату, продаж або приймання коштів і не може використовуватися як фіскальний розрахунковий документ."
+          : "Копію сформовано за даними документа, отриманого від production API ДПС." }}
       </p>
     </section>
 
