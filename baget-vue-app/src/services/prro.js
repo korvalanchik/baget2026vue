@@ -90,6 +90,10 @@ export function getPrroDevices(token) {
   return adminRequest(token, "/api/prro/admin/devices");
 }
 
+export function getPrroEndpoint(token) {
+  return adminRequest(token, "/api/prro/admin/endpoint");
+}
+
 export function savePrroDevice(token, id, device) {
   return adminRequest(token, id ? `/api/prro/admin/devices/${id}` : "/api/prro/admin/devices", {
     method: id ? "PUT" : "POST",
