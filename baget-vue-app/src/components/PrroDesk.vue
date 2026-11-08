@@ -558,7 +558,7 @@ async function issuePaymentCheck(payment) {
           : "ДПС прийняла чек за надходженням Baget, але стан зміни потребує звірки перед наступною операцією.";
       } catch (verificationError) {
         receiptPrintData.value = null;
-  zReportPrintData.value = null;
+        zReportPrintData.value = null;
         receiptPrintError.value = verificationError.message || "невідома помилка";
         message.value = (isTestEndpoint.value
           ? "Тестовий чек прийнято"
@@ -965,7 +965,7 @@ async function issueTestCheck() {
         }
       } catch (verificationError) {
         receiptPrintData.value = null;
-  zReportPrintData.value = null;
+        zReportPrintData.value = null;
         receiptPrintError.value = verificationError.message || "невідома помилка";
         message.value = (isTestEndpoint.value
           ? "ДПС прийняла тестовий чек, але друк недоступний: "
