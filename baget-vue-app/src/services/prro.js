@@ -123,6 +123,13 @@ export function submitPrroShiftOpen(token, request) {
   });
 }
 
+export function cancelPrroPreparedShiftOpen(token, request) {
+  return adminRequest(token, "/api/prro/shift/open/cancel-prepared", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
 export function preparePrroShiftClose(token, request) {
   return adminRequest(token, "/api/prro/shift/close/prepare", {
     method: "POST",
