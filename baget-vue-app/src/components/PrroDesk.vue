@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, preparePrroShiftClose, submitPrroShiftClose, preparePrroTestCheck, submitPrroTestCheck, getPrroRecentPayments, preparePrroPaymentCheck, submitPrroPaymentCheck } from "../services/prro.js";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, preparePrroShiftClose, submitPrroShiftClose, preparePrroTestCheck, submitPrroTestCheck, getPrroRecentPayments, preparePrroPaymentCheck, submitPrroPaymentCheck, getPrroFiscalDocuments, getPrroFiscalDocument } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
 const canRunDiagnostics = computed(() => props.session.roles?.some(role => ["ROLE_ADMIN", "ROLE_SENIOR_CASHIER"].includes(role)) === true);
@@ -27,9 +27,18 @@ const shiftCloseIdempotencyKey = ref("");
 const testCheckResult = ref(null);
 const receiptPrintData = ref(null);
 const receiptPrintError = ref("");
-const canPrintReceipt = computed(() => testCheckResult.value?.status === "FISCALIZED" && !!receiptPrintData.value);
+const canPrintReceipt = computed(() => !!receiptPrintData.value);
 const recentPayments = ref([]);
 const paymentCheckError = ref("");
+const fiscalDocuments = ref([]);
+const fiscalDocumentsLoading = ref(false);
+const fiscalDocumentsError = ref("");
+const fiscalDocumentQuery = ref("");
+const fiscalDocumentFrom = ref(localDateInput(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)));
+const fiscalDocumentTo = ref(localDateInput(new Date()));
+const fiscalDocumentPage = ref(0);
+const fiscalDocumentsHasMore = ref(false);
+const openingFiscalDocumentId = ref(null);
 const activePaymentRequestKey = ref("");
 const shareDialogVisible = ref(false);
 const sharePhone = ref("");
@@ -141,7 +150,7 @@ async function loadDeviceForBranch() {
     const device = await getPrroDeviceForBranch(props.session.token, selectedBranch);
     fiscalNumber.value = device.fiscalNumber;
     deviceName.value = device.displayName;
-    await loadRecentPayments();
+    await Promise.all([loadRecentPayments(), loadFiscalDocuments(true)]);
   } catch (e) {
     if (e.status !== 404) error.value = e.message || "Не вдалося завантажити налаштування каси.";
   }
@@ -259,6 +268,105 @@ function paymentOperationLabel(status) {
   })[status] || status || "—";
 }
 
+function localDateInput(date) {
+  const pad = value => String(value).padStart(2, "0");
+  return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate());
+}
+
+async function loadFiscalDocuments(reset = true) {
+  const selectedBranch = branchNo.value.trim();
+  if (!selectedBranch) {
+    fiscalDocuments.value = [];
+    fiscalDocumentsHasMore.value = false;
+    return;
+  }
+  const page = reset ? 0 : fiscalDocumentPage.value + 1;
+  fiscalDocumentsLoading.value = true;
+  fiscalDocumentsError.value = "";
+  try {
+    const result = await getPrroFiscalDocuments(props.session.token, {
+      branchNo: selectedBranch,
+      from: fiscalDocumentFrom.value,
+      to: fiscalDocumentTo.value,
+      query: fiscalDocumentQuery.value,
+      page,
+      size: 30,
+    });
+    fiscalDocuments.value = reset
+      ? result.documents
+      : [...fiscalDocuments.value, ...result.documents];
+    fiscalDocumentPage.value = result.page;
+    fiscalDocumentsHasMore.value = result.hasMore;
+  } catch (e) {
+    fiscalDocumentsError.value = e.message || "Не вдалося завантажити архів фіскальних документів.";
+  } finally {
+    fiscalDocumentsLoading.value = false;
+  }
+}
+
+function fiscalDocumentTypeLabel(type) {
+  return ({
+    CHK: "Чек",
+    ZREPORT: "Z-звіт",
+    SERVICECHK: "Службовий документ",
+  })[type] || type || "Документ";
+}
+
+function fiscalDocumentSourceLabel(document) {
+  if (document.sourceType === "PAYMENT") return "Надходження Baget";
+  if (document.sourceType === "SHIFT_OPEN") return "Відкриття зміни";
+  if (document.sourceType === "SHIFT_CLOSE") return "Закриття зміни";
+  if (document.sourceType === "TEST") return "Контрольний тестовий чек";
+  return document.sourceType || "Операція Baget";
+}
+
+async function openArchivedDocument(document) {
+  if (openingFiscalDocumentId.value || !document) return;
+  if (document.documentType !== "CHK") {
+    fiscalDocumentsError.value = "Повторний друк цього типу документа поки не підтримується. Оригінал збережений в архіві.";
+    return;
+  }
+  if (document.archiveStatus !== "CAPTURED") {
+    fiscalDocumentsError.value = "ДПС підтвердила документ, але не повернула data_sign у відповіді sendChkV2. Оригінал не доступний для друку.";
+    return;
+  }
+
+  openingFiscalDocumentId.value = document.id;
+  fiscalDocumentsError.value = "";
+  error.value = "";
+  message.value = "";
+  try {
+    const archived = await getPrroFiscalDocument(props.session.token, document.id);
+    if (!archived.dataSignBase64) {
+      throw new Error("В архівному записі немає оригінальних байтів data_sign.");
+    }
+    const dpsReceipt = parseDpsReceipt(archived.dataSignBase64);
+    if (dpsReceipt.fiscalNumber !== archived.fiscalNumber) {
+      throw new Error("Фіскальний номер в оригіналі документа не збігається з архівним записом.");
+    }
+    if (dpsReceipt.receiptNumber !== String(archived.localNumber)) {
+      throw new Error("Номер чека в оригіналі документа не збігається з локальним номером операції.");
+    }
+    receiptPrintData.value = {
+      ...dpsReceipt,
+      branchName: archived.branchName,
+      deviceName: archived.deviceName,
+      fiscalDocumentId: archived.fiscalDocumentId,
+      responseCode: archived.responseCode,
+      isTestDocument: archived.endpointMode === "TEST",
+      archiveId: archived.id,
+    };
+    receiptPrintError.value = "";
+    message.value = "Оригінальний чек завантажено з архіву ДПС. Тепер його можна повторно роздрукувати або надіслати.";
+    await nextTick();
+  } catch (e) {
+    fiscalDocumentsError.value = e.message || "Не вдалося відкрити чек з архіву.";
+  } finally {
+    openingFiscalDocumentId.value = null;
+  }
+}
+
+
 async function issuePaymentCheck(payment) {
   if (busy.value) return;
   error.value = "";
@@ -323,6 +431,7 @@ async function issuePaymentCheck(payment) {
     testCheckResult.value = submitted;
 
     if (submitted.status === "FISCALIZED") {
+      await loadFiscalDocuments(true);
       message.value = isTestEndpoint.value
         ? "ДПС прийняла тестовий чек із надходження Baget. Отримуємо відповідь lastChk…"
         : "ДПС прийняла фіскальний чек за надходженням Baget. Отримуємо відповідь lastChk…";
@@ -530,6 +639,7 @@ async function openShift() {
     });
 
     if (shiftOpenResult.value.status === "FISCALIZED") {
+      await loadFiscalDocuments(true);
       shiftOpenIdempotencyKey.value = "";
       message.value = "ДПС прийняла SERVICECHK. Автоматично оновлюємо стан зміни…";
       try {
@@ -618,6 +728,7 @@ async function closeShift() {
     });
 
     if (shiftCloseResult.value.status === "FISCALIZED") {
+      await loadFiscalDocuments(true);
       shiftOpenIdempotencyKey.value = "";
       shiftCloseIdempotencyKey.value = "";
       message.value = "ZREPORT прийнято. Автоматично перевіряємо закриття зміни…";
@@ -712,6 +823,7 @@ async function issueTestCheck() {
     });
 
     if (testCheckResult.value.status === "FISCALIZED") {
+      await loadFiscalDocuments(true);
       testCheckIdempotencyKey.value = "";
       message.value = "Тестовий чек фіскалізовано. Отримуємо оригінальний документ із lastChk ДПС…";
       try {
@@ -1603,15 +1715,81 @@ onBeforeUnmount(() => {
             {{ busy ? "Виконується…" : "Сформувати Z-звіт і закрити зміну" }}
           </button>
         </article>
-        <article class="prro-panel operation-card">
-          <div class="operation-icon">≡</div>
-          <div>
-            <h4>Історія операцій</h4>
-            <p>Фіскалізовані, відхилені та операції, що потребують звірки.</p>
+      </div>
+    </section>
+
+    <section class="prro-panel fiscal-document-archive" aria-labelledby="fiscal-document-archive-title">
+      <div class="section-heading">
+        <div>
+          <h3 id="fiscal-document-archive-title">Архів фіскальних документів</h3>
+          <p>Оригінальні відповіді ДПС, збережені під час фіскалізації. Чеки продажу та повернення можна повторно відкрити й надрукувати.</p>
+        </div>
+        <button type="button" class="button-secondary"
+          :disabled="fiscalDocumentsLoading || !branchNo" @click="loadFiscalDocuments(true)">
+          {{ fiscalDocumentsLoading ? "Завантаження…" : "Оновити архів" }}
+        </button>
+      </div>
+
+      <div class="fiscal-document-filters">
+        <label>З дати
+          <input v-model="fiscalDocumentFrom" type="date">
+        </label>
+        <label>До дати
+          <input v-model="fiscalDocumentTo" type="date">
+        </label>
+        <label class="fiscal-document-search">Пошук
+          <input v-model.trim="fiscalDocumentQuery" type="search"
+            placeholder="Фіскальний ID, номер чека, ФН або джерело"
+            @keyup.enter="loadFiscalDocuments(true)">
+        </label>
+        <button type="button" class="button-primary"
+          :disabled="fiscalDocumentsLoading || !branchNo"
+          @click="loadFiscalDocuments(true)">
+          Знайти
+        </button>
+      </div>
+
+      <p v-if="fiscalDocumentsError" class="feedback feedback-error" role="alert">{{ fiscalDocumentsError }}</p>
+      <p v-if="!fiscalDocuments.length && !fiscalDocumentsLoading && !fiscalDocumentsError" class="help-text">
+        За вибраний період фіскальних документів не знайдено.
+      </p>
+
+      <div v-if="fiscalDocuments.length" class="fiscal-document-list">
+        <article v-for="document in fiscalDocuments" :key="document.id" class="fiscal-document-row">
+          <div class="fiscal-document-copy">
+            <strong>{{ fiscalDocumentTypeLabel(document.documentType) }} №{{ document.localNumber }}</strong>
+            <span>{{ document.branchName }} · {{ document.deviceName }} · ФН {{ document.fiscalNumber }}</span>
+            <small>{{ new Date(document.archivedAt).toLocaleString("uk-UA") }} · ID ДПС: {{ document.fiscalDocumentId }}</small>
+            <small>{{ fiscalDocumentSourceLabel(document) }} · {{ document.endpointMode === "TEST" ? "TEST API" : "PRODUCTION API" }}</small>
+            <small v-if="document.archiveStatus !== 'CAPTURED'" class="fiscal-document-missing">
+              Відповідь ДПС не містила data_sign — повторний друк недоступний
+            </small>
           </div>
-          <span class="feature-status">Готується</span>
-          <button type="button" class="button-secondary" disabled>Незабаром</button>
+          <button type="button" class="button-secondary"
+            :disabled="openingFiscalDocumentId === document.id || document.archiveStatus !== 'CAPTURED' || document.documentType !== 'CHK'"
+            @click="openArchivedDocument(document)">
+            {{ openingFiscalDocumentId === document.id ? "Відкриваємо…" : "Відкрити чек" }}
+          </button>
         </article>
+      </div>
+
+      <div class="fiscal-document-pagination">
+        <span>{{ fiscalDocuments.length }} документ(ів) у вибірці</span>
+        <button v-if="fiscalDocumentsHasMore" type="button" class="button-secondary"
+          :disabled="fiscalDocumentsLoading" @click="loadFiscalDocuments(false)">
+          {{ fiscalDocumentsLoading ? "Завантаження…" : "Завантажити ще" }}
+        </button>
+      </div>
+
+      <div v-if="receiptPrintData?.archiveId" class="fiscal-document-selected">
+        <div>
+          <strong>Відкрито чек з архіву №{{ receiptPrintData.receiptNumber }}</strong>
+          <small>ID ДПС: {{ receiptPrintData.fiscalDocumentId }}</small>
+        </div>
+        <div class="fiscal-document-selected-actions">
+          <button type="button" class="button-primary" @click="printReceipt">Роздрукувати</button>
+          <button type="button" class="button-secondary" @click="openReceiptShare">Надіслати копію</button>
+        </div>
       </div>
     </section>
 
@@ -1653,7 +1831,7 @@ onBeforeUnmount(() => {
         </div>
         <p class="share-disclaimer">
           Перед відправленням обов’язково перевірте номер і профіль одержувача.
-          {{ isTestEndpoint ? "Це документ із тестового середовища ДПС, він не є фіскальним чеком." : "Це електронна копія документа, отриманого від production API ДПС." }}
+          {{ receiptPrintData?.isTestDocument ? "Це документ із тестового середовища ДПС, він не є фіскальним чеком." : "Це електронна копія документа, отриманого від production API ДПС." }}
         </p>
       </section>
     </div>
@@ -1834,7 +2012,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="print-receipt__meta print-receipt__footer">
-        <div>Джерело документа: відповідь ДПС lastChk / data_sign</div>
+        <div>Джерело документа: архів оригінальної відповіді ДПС / data_sign</div>
         <div>ID документа ДПС: {{ receiptPrintData.fiscalDocumentId }}</div>
         <div>Код відповіді: {{ receiptPrintData.responseCode ?? "—" }}</div>
       </div>
@@ -1961,4 +2139,6 @@ button:disabled { opacity:.48; cursor:not-allowed; }
 .share-disclaimer { margin:0; color:#667085; font-size:11px; line-height:1.45; }
 @media(max-width:600px) { .share-overlay { align-items:flex-end; padding:0; }.share-dialog { width:100%; max-height:92dvh; border-radius:16px 16px 0 0; padding:22px 16px; }.share-actions,.share-footer { display:grid; grid-template-columns:1fr; }.share-actions button,.share-footer button { width:100%; } }
 @media(max-width:600px) { .page-header,.overview-main { flex-direction:column; }.branch-picker { width:100%; }.shift-state { align-self:flex-start; }.primary-actions,.diagnostic-actions { display:grid; grid-template-columns:1fr; }.primary-actions button,.diagnostic-actions button { width:100%; }.status-summary { grid-template-columns:1fr 1fr; }.iit-widget-overlay { padding:0; }.iit-widget-dialog { width:100%; height:100dvh; border-radius:0; } }
+
+.fiscal-document-archive{display:grid;gap:14px}.fiscal-document-filters{display:grid;grid-template-columns:repeat(2,minmax(130px,170px)) minmax(200px,1fr) auto;align-items:end;gap:10px}.fiscal-document-filters label{display:grid;gap:5px;font-size:13px;color:#617580}.fiscal-document-filters input{min-width:0;width:100%}.fiscal-document-list{display:grid;gap:0}.fiscal-document-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-top:1px solid #e7edf0}.fiscal-document-copy{display:grid;gap:4px;min-width:0}.fiscal-document-copy span,.fiscal-document-copy small{font-size:13px;color:#617580;overflow-wrap:anywhere}.fiscal-document-copy .fiscal-document-missing{color:#9b4d25}.fiscal-document-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#617580;font-size:13px}.fiscal-document-selected{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px solid #dce4e9;border-radius:8px;background:#f7fafb}.fiscal-document-selected>div:first-child{display:grid;gap:4px}.fiscal-document-selected small{color:#617580}.fiscal-document-selected-actions{display:flex;gap:8px;flex-wrap:wrap}.fiscal-document-archive .feedback{margin:0}@media(max-width:760px){.fiscal-document-filters{grid-template-columns:1fr 1fr}.fiscal-document-search{grid-column:1/-1}.fiscal-document-filters>button{grid-column:1/-1}.fiscal-document-row,.fiscal-document-selected{align-items:stretch;flex-direction:column}.fiscal-document-selected-actions{justify-content:flex-start}}
 </style>

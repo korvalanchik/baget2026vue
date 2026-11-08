@@ -168,3 +168,18 @@ export function submitPrroPaymentCheck(token, paymentRequestKey, request) {
     body: JSON.stringify(request),
   });
 }
+
+export function getPrroFiscalDocuments(token, filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.branchNo != null) params.set("branchNo", String(Number(filters.branchNo)));
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  if (filters.query) params.set("query", filters.query);
+  params.set("page", String(filters.page ?? 0));
+  params.set("size", String(filters.size ?? 30));
+  return adminRequest(token, "/api/prro/documents?" + params.toString());
+}
+
+export function getPrroFiscalDocument(token, documentId) {
+  return adminRequest(token, "/api/prro/documents/" + encodeURIComponent(documentId));
+}
