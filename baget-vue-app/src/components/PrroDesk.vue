@@ -76,7 +76,7 @@ const canCreatePaymentCheck = computed(() => canCloseShift.value);
 const canCancelPreparedShiftOpen = computed(() => !busy.value
   && shiftStatus.value?.state === "RECONCILIATION_REQUIRED"
   && shiftStatus.value?.dpsOpenShift === false
-  && shiftStatus.value?.localShiftPrepared === true);
+  && shiftStatus.value?.localShiftOpenPrepared === true);
 
 const widgetVisible = ref(false);
 let endUser = null;
