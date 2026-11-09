@@ -190,3 +190,7 @@ export function getPrroFiscalDocuments(token, filters = {}) {
 export function getPrroFiscalDocument(token, documentId) {
   return adminRequest(token, "/api/prro/documents/" + encodeURIComponent(documentId));
 }
+
+export function getPrroReceiptDetails(token, branchNo) {
+  return adminRequest(token, `/api/prro/receipt-details/${Number(branchNo)}`);
+}
