@@ -1490,30 +1490,14 @@ function createReceiptImageBlob(data) {
       y += 16;
     }
 
-    addText("БАГЕТ", "bold 36px Arial", { align: "center", lineHeight: 44 });
-    addText(data.receiptType || "ЧЕК", "bold 23px Arial", { align: "center", lineHeight: 31, after: 12 });
-
-    const warningTop = y + 2;
-    if (data.isTestDocument) {
-      const warningHeight = 76;
-      commands.push({
-        type: "rect",
-        x: margin,
-        y: warningTop,
-        width: contentWidth,
-        height: warningHeight,
-        color: "#111111",
-      });
-      y = warningTop + 13;
-      addText("ТЕСТОВИЙ ДОКУМЕНТ", "bold 22px Arial", { align: "center", lineHeight: 27 });
-      addText("НЕ Є ФІСКАЛЬНИМ ЧЕКОМ", "bold 20px Arial", { align: "center", lineHeight: 25, color: "#111111" });
-      y = warningTop + warningHeight + 13;
-    } else {
-      addText("КОПІЯ ФІСКАЛЬНОГО ЧЕКА", "bold 20px Arial", { align: "center", lineHeight: 28, after: 10 });
-    }
-
-    addText(data.branchName || "Філія", "18px Arial", { lineHeight: 26 });
-    addText(data.deviceName || "ПРРО", "18px Arial", { lineHeight: 26 });
+    addText(data.companyName || "Суб'єкт господарювання", "bold 25px Arial", {
+      align: "center", lineHeight: 32, after: 8,
+    });
+    addText(data.isTestDocument ? "НЕ Є ФІСКАЛЬНИМ ЧЕКОМ" : "ФІСКАЛЬНИЙ ЧЕК",
+      "bold 20px Arial", { align: "center", lineHeight: 27, after: 10 });
+    addText((data.taxIdLabel || "ІД") + ": " + (data.taxId || "—"), "18px Arial", { lineHeight: 26 });
+    addText(data.branchName || "Господарська одиниця", "18px Arial", { lineHeight: 26 });
+    addText(data.branchAddress || "Адресу господарської одиниці не вказано", "18px Arial", { lineHeight: 26 });
     addText("ФН ПРРО: " + (data.fiscalNumber || "—"), "18px Arial", { lineHeight: 26 });
     addText("Чек №: " + (data.receiptNumber || "—"), "18px Arial", { lineHeight: 26 });
     addText("Дата і час: " + formatDpsDateTime(data.dateTime), "18px Arial", { lineHeight: 26 });
@@ -1535,16 +1519,7 @@ function createReceiptImageBlob(data) {
     addRow("СУМА", data.total, "bold 24px Arial", 34);
     y += 8;
 
-    addText("Джерело документа: відповідь ДПС lastChk / data_sign", "15px Arial", { lineHeight: 22 });
-    addText("ID документа ДПС: " + (data.fiscalDocumentId || "—"), "15px Arial", { lineHeight: 22 });
-    addText("Код відповіді: " + (data.responseCode ?? "—"), "15px Arial", { lineHeight: 22, after: 8 });
-    addText(
-      data.isTestDocument
-        ? "Документ отримано з тестового середовища ДПС. Він не підтверджує оплату, продаж або приймання коштів і не може використовуватися як фіскальний розрахунковий документ."
-        : "Копію сформовано за даними документа, отриманого від production API ДПС.",
-      "bold 15px Arial",
-      { align: "center", lineHeight: 22, after: 18 },
-    );
+
 
     const canvas = document.createElement("canvas");
     canvas.width = width;
@@ -2221,15 +2196,17 @@ onBeforeUnmount(() => {
 
     <section v-if="receiptPrintData" class="print-receipt" aria-hidden="true">
       <header class="print-receipt__header">
-        <strong class="print-receipt__brand">БАГЕТ</strong>
+        <strong class="print-receipt__brand">{{ receiptPrintData.companyName }}</strong>
+        <div class="print-receipt__warning">
+          {{ receiptPrintData.isTestDocument ? "НЕ Є ФІСКАЛЬНИМ ЧЕКОМ" : "ФІСКАЛЬНИЙ ЧЕК" }}
+        </div>
         <div class="print-receipt__title">{{ receiptPrintData.receiptType }}</div>
-        <div v-if="receiptPrintData.isTestDocument" class="print-receipt__warning">ТЕСТОВИЙ ДОКУМЕНТ<br />НЕ Є ФІСКАЛЬНИМ ЧЕКОМ</div>
-      <div v-else class="print-receipt__warning">КОПІЯ ФІСКАЛЬНОГО ЧЕКА</div>
       </header>
 
       <div class="print-receipt__meta">
+        <div>{{ receiptPrintData.taxIdLabel }}: {{ receiptPrintData.taxId }}</div>
         <div>{{ receiptPrintData.branchName }}</div>
-        <div>{{ receiptPrintData.deviceName }}</div>
+        <div>{{ receiptPrintData.branchAddress }}</div>
         <div>ФН ПРРО: {{ receiptPrintData.fiscalNumber }}</div>
         <div>Чек №: {{ receiptPrintData.receiptNumber }}</div>
         <div>Дата і час: {{ formatDpsDateTime(receiptPrintData.dateTime) }}</div>
@@ -2256,16 +2233,7 @@ onBeforeUnmount(() => {
         <strong>{{ receiptPrintData.total }}</strong>
       </div>
 
-      <div class="print-receipt__meta print-receipt__footer">
-        <div>Джерело документа: архів оригінальної відповіді ДПС / data_sign</div>
-        <div>ID документа ДПС: {{ receiptPrintData.fiscalDocumentId }}</div>
-        <div>Код відповіді: {{ receiptPrintData.responseCode ?? "—" }}</div>
-      </div>
-      <p class="print-receipt__disclaimer">
-        {{ receiptPrintData.isTestDocument
-          ? "Документ отримано з тестового середовища ДПС. Він не підтверджує оплату, продаж або приймання коштів і не може використовуватися як фіскальний розрахунковий документ."
-          : "Копію сформовано за даними документа, отриманого від production API ДПС." }}
-      </p>
+
     </section>
 
     <section v-if="zReportPrintData" class="print-receipt print-zreport" aria-hidden="true">
