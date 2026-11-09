@@ -28,6 +28,8 @@ const testCheckResult = ref(null);
 const receiptPrintData = ref(null);
 const receiptPrintError = ref("");
 const canPrintReceipt = computed(() => !!receiptPrintData.value);
+const zReportPrintData = ref(null);
+const canPrintZReport = computed(() => !!zReportPrintData.value);
 const recentPayments = ref([]);
 const paymentCheckError = ref("");
 const fiscalDocuments = ref([]);
@@ -135,6 +137,7 @@ async function loadDeviceForBranch() {
   lastCheckError.value = "";
   testCheckResult.value = null;
   receiptPrintData.value = null;
+  zReportPrintData.value = null;
   receiptPrintError.value = "";
   shareDialogVisible.value = false;
   shareCopied.value = false;
@@ -388,8 +391,8 @@ function fiscalDocumentSourceLabel(document) {
 
 async function openArchivedDocument(document) {
   if (openingFiscalDocumentId.value || !document) return;
-  if (document.documentType !== "CHK") {
-    fiscalDocumentsError.value = "Повторний друк цього типу документа поки не підтримується. Оригінал збережений в архіві.";
+  if (!["CHK", "ZREPORT"].includes(document.documentType)) {
+    fiscalDocumentsError.value = "Перегляд цього типу документа поки не підтримується. Оригінал збережений в архіві.";
     return;
   }
   if (document.archiveStatus !== "CAPTURED") {
@@ -401,37 +404,57 @@ async function openArchivedDocument(document) {
   fiscalDocumentsError.value = "";
   error.value = "";
   message.value = "";
+  receiptPrintData.value = null;
+  zReportPrintData.value = null;
   try {
     const archived = await getPrroFiscalDocument(props.session.token, document.id);
     if (!archived.dataSignBase64) {
       throw new Error("В архівному записі немає оригінальних байтів data_sign.");
     }
-    const dpsReceipt = parseDpsReceipt(archived.dataSignBase64);
-    if (dpsReceipt.fiscalNumber !== archived.fiscalNumber) {
-      throw new Error("Фіскальний номер в оригіналі документа не збігається з архівним записом.");
+
+    if (document.documentType === "CHK") {
+      const dpsReceipt = parseDpsReceipt(archived.dataSignBase64);
+      if (dpsReceipt.fiscalNumber !== archived.fiscalNumber) {
+        throw new Error("Фіскальний номер в оригіналі документа не збігається з архівним записом.");
+      }
+      if (dpsReceipt.receiptNumber !== String(archived.localNumber)) {
+        throw new Error("Номер чека в оригіналі документа не збігається з локальним номером операції.");
+      }
+      receiptPrintData.value = {
+        ...dpsReceipt,
+        branchName: archived.branchName,
+        deviceName: archived.deviceName,
+        fiscalDocumentId: archived.fiscalDocumentId,
+        responseCode: archived.responseCode,
+        isTestDocument: archived.endpointMode === "TEST",
+        archiveId: archived.id,
+      };
+      receiptPrintError.value = "";
+      message.value = "Оригінальний чек завантажено з архіву ДПС. Тепер його можна повторно роздрукувати або надіслати.";
+    } else {
+      const dpsReport = parseDpsZReport(archived.dataSignBase64);
+      if (dpsReport.fiscalNumber !== archived.fiscalNumber) {
+        throw new Error("Фіскальний номер у Z-звіті не збігається з архівним записом.");
+      }
+      zReportPrintData.value = {
+        ...dpsReport,
+        branchName: archived.branchName,
+        deviceName: archived.deviceName,
+        fiscalDocumentId: archived.fiscalDocumentId,
+        responseCode: archived.responseCode,
+        isTestDocument: archived.endpointMode === "TEST",
+        archiveId: archived.id,
+        localOperationNumber: archived.localNumber,
+      };
+      message.value = "Оригінальний Z-звіт завантажено з архіву ДПС. Його можна повторно роздрукувати.";
     }
-    if (dpsReceipt.receiptNumber !== String(archived.localNumber)) {
-      throw new Error("Номер чека в оригіналі документа не збігається з локальним номером операції.");
-    }
-    receiptPrintData.value = {
-      ...dpsReceipt,
-      branchName: archived.branchName,
-      deviceName: archived.deviceName,
-      fiscalDocumentId: archived.fiscalDocumentId,
-      responseCode: archived.responseCode,
-      isTestDocument: archived.endpointMode === "TEST",
-      archiveId: archived.id,
-    };
-    receiptPrintError.value = "";
-    message.value = "Оригінальний чек завантажено з архіву ДПС. Тепер його можна повторно роздрукувати або надіслати.";
     await nextTick();
   } catch (e) {
-    fiscalDocumentsError.value = e.message || "Не вдалося відкрити чек з архіву.";
+    fiscalDocumentsError.value = e.message || "Не вдалося відкрити документ з архіву.";
   } finally {
     openingFiscalDocumentId.value = null;
   }
 }
-
 
 async function issuePaymentCheck(payment) {
   if (busy.value) return;
@@ -440,6 +463,7 @@ async function issuePaymentCheck(payment) {
   paymentCheckError.value = "";
   testCheckResult.value = null;
   receiptPrintData.value = null;
+  zReportPrintData.value = null;
   receiptPrintError.value = "";
 
   const selectedBranch = branchNo.value.trim();
@@ -534,6 +558,7 @@ async function issuePaymentCheck(payment) {
           : "ДПС прийняла чек за надходженням Baget, але стан зміни потребує звірки перед наступною операцією.";
       } catch (verificationError) {
         receiptPrintData.value = null;
+        zReportPrintData.value = null;
         receiptPrintError.value = verificationError.message || "невідома помилка";
         message.value = (isTestEndpoint.value
           ? "Тестовий чек прийнято"
@@ -833,6 +858,7 @@ async function issueTestCheck() {
   message.value = "";
   testCheckResult.value = null;
   receiptPrintData.value = null;
+  zReportPrintData.value = null;
   receiptPrintError.value = "";
   shareDialogVisible.value = false;
   shareCopied.value = false;
@@ -939,6 +965,7 @@ async function issueTestCheck() {
         }
       } catch (verificationError) {
         receiptPrintData.value = null;
+        zReportPrintData.value = null;
         receiptPrintError.value = verificationError.message || "невідома помилка";
         message.value = (isTestEndpoint.value
           ? "ДПС прийняла тестовий чек, але друк недоступний: "
@@ -1244,8 +1271,114 @@ function parseDpsReceipt(dataSignBase64) {
   };
 }
 
+
+function parseDpsZReport(dataSignBase64) {
+  const xmlText = decodeDpsXml(dataSignBase64);
+  const document = new DOMParser().parseFromString(xmlText, "application/xml");
+  if (document.getElementsByTagName("parsererror").length) {
+    throw new Error("Документ data_sign від ДПС не є коректним XML.");
+  }
+
+  const packet = document.getElementsByTagName("DAT")[0];
+  const report = packet
+    ? Array.from(packet.children).find(element => element.tagName === "Z")
+    : null;
+  const timestamp = packet
+    ? Array.from(packet.children).find(element => element.tagName === "TS")?.textContent?.trim()
+    : "";
+  if (!packet || !report) {
+    throw new Error("В оригінальному документі ДПС відсутній блок DAT/Z — це не Z-звіт.");
+  }
+
+  const readRequiredInteger = (element, name, label) => {
+    const value = element.getAttribute(name);
+    if (value === null || !/^\d+$/.test(value)) {
+      throw new Error("У Z-звіті відсутнє або некоректне поле " + label + ".");
+    }
+    const number = Number(value);
+    if (!Number.isSafeInteger(number)) {
+      throw new Error("Поле " + label + " виходить за допустимий числовий діапазон.");
+    }
+    return number;
+  };
+  const readOptionalMoney = (element, name) => {
+    if (!element.hasAttribute(name) || element.getAttribute(name) === "") return "—";
+    const value = element.getAttribute(name);
+    if (!/^\d+$/.test(value)) {
+      throw new Error("У Z-звіті міститься некоректна сума в полі " + name + ".");
+    }
+    return formatDpsMoney(value);
+  };
+  const readOptionalRate = (element, name) => {
+    if (!element.hasAttribute(name) || element.getAttribute(name) === "") return "—";
+    const value = element.getAttribute(name);
+    if (!/^\d+(?:\.\d{1,2})?$/.test(value)) {
+      throw new Error("У Z-звіті міститься некоректна ставка в полі " + name + ".");
+    }
+    return value + "%";
+  };
+  const directChildren = (parent, tagName) =>
+    Array.from(parent.children).filter(element => element.tagName === tagName);
+  const fiscalNumber = packet.getAttribute("FN") || "";
+  const taxpayerNumber = packet.getAttribute("TN") || "";
+  const serialNumber = packet.getAttribute("ZN") || "";
+  const reportNumber = readRequiredInteger(report, "NO", "Z.NO");
+  if (!/^\d{1,32}$/.test(fiscalNumber) || !/^\d{14}$/.test(timestamp || "")) {
+    throw new Error("Z-звіт не містить коректного фіскального номера або дати/часу.");
+  }
+
+  const counts = directChildren(report, "NC")[0];
+  if (!counts) throw new Error("У Z-звіті відсутній блок NC з кількістю чеків.");
+  const salesCount = readRequiredInteger(counts, "NI", "NC.NI");
+  const returnsCount = readRequiredInteger(counts, "NO", "NC.NO");
+
+  const taxes = directChildren(report, "TXS").map((row, index) => ({
+    key: row.getAttribute("TX") || String(index),
+    code: row.getAttribute("TX") || "—",
+    rate: readOptionalRate(row, "TXPR"),
+    receivedTurnover: readOptionalMoney(row, "SMI"),
+    receivedTax: readOptionalMoney(row, "TXI"),
+    paidTurnover: readOptionalMoney(row, "SMO"),
+    paidTax: readOptionalMoney(row, "TXO"),
+    additionalRate: readOptionalRate(row, "DTPR"),
+    additionalReceivedTax: readOptionalMoney(row, "DTI"),
+    additionalPaidTax: readOptionalMoney(row, "DTO"),
+  }));
+  const payments = directChildren(report, "M").map((row, index) => ({
+    key: String(index) + ":" + (row.getAttribute("T") || ""),
+    name: row.getAttribute("NM") || "Форма оплати",
+    received: readOptionalMoney(row, "SMI"),
+    paid: readOptionalMoney(row, "SMO"),
+  }));
+  const movements = directChildren(report, "IO").map((row, index) => ({
+    key: String(index) + ":" + (row.getAttribute("T") || ""),
+    name: row.getAttribute("NM") || "Готівка",
+    received: readOptionalMoney(row, "SMI"),
+    paid: readOptionalMoney(row, "SMO"),
+  }));
+
+  return {
+    fiscalNumber,
+    taxpayerNumber,
+    serialNumber,
+    reportNumber,
+    dateTime: timestamp,
+    salesCount,
+    returnsCount,
+    taxes,
+    payments,
+    movements,
+    source: "DPS data_sign (ZREPORT)",
+  };
+}
+
 function printReceipt() {
   if (!canPrintReceipt.value) return;
+  window.print();
+}
+
+function printZReport() {
+  if (!canPrintZReport.value) return;
   window.print();
 }
 
@@ -1797,7 +1930,7 @@ onBeforeUnmount(() => {
       <div class="section-heading">
         <div>
           <h3 id="fiscal-document-archive-title">Архів фіскальних документів</h3>
-          <p>Оригінальні відповіді ДПС, збережені під час фіскалізації. Чеки продажу та повернення можна повторно відкрити й надрукувати.</p>
+          <p>Оригінальні відповіді ДПС, збережені під час фіскалізації. Чеки та Z-звіти можна повторно відкрити й надрукувати.</p>
         </div>
         <button type="button" class="button-secondary"
           :disabled="fiscalDocumentsLoading || !branchNo" @click="loadFiscalDocuments(true)">
@@ -1832,7 +1965,7 @@ onBeforeUnmount(() => {
       <div v-if="fiscalDocuments.length" class="fiscal-document-list">
         <article v-for="document in fiscalDocuments" :key="document.id" class="fiscal-document-row">
           <div class="fiscal-document-copy">
-            <strong>{{ fiscalDocumentTypeLabel(document.documentType) }} №{{ document.localNumber }}</strong>
+            <strong>{{ document.documentType === 'ZREPORT' ? 'Z-звіт · локальна операція №' + document.localNumber : fiscalDocumentTypeLabel(document.documentType) + ' №' + document.localNumber }}</strong>
             <span>{{ document.branchName }} · {{ document.deviceName }} · ФН {{ document.fiscalNumber }}</span>
             <small>{{ new Date(document.archivedAt).toLocaleString("uk-UA") }} · ID ДПС: {{ document.fiscalDocumentId }}</small>
             <small>{{ fiscalDocumentSourceLabel(document) }} · {{ document.endpointMode === "TEST" ? "TEST API" : "PRODUCTION API" }}</small>
@@ -1841,9 +1974,9 @@ onBeforeUnmount(() => {
             </small>
           </div>
           <button type="button" class="button-secondary"
-            :disabled="openingFiscalDocumentId === document.id || document.archiveStatus !== 'CAPTURED' || document.documentType !== 'CHK'"
+            :disabled="openingFiscalDocumentId === document.id || document.archiveStatus !== 'CAPTURED' || !['CHK', 'ZREPORT'].includes(document.documentType)"
             @click="openArchivedDocument(document)">
-            {{ openingFiscalDocumentId === document.id ? "Відкриваємо…" : "Відкрити чек" }}
+            {{ openingFiscalDocumentId === document.id ? "Відкриваємо…" : document.documentType === 'ZREPORT' ? "Відкрити Z-звіт" : document.documentType === 'CHK' ? "Відкрити чек" : "Перегляд недоступний" }}
           </button>
         </article>
       </div>
@@ -1864,6 +1997,15 @@ onBeforeUnmount(() => {
         <div class="fiscal-document-selected-actions">
           <button type="button" class="button-primary" @click="printReceipt">Роздрукувати</button>
           <button type="button" class="button-secondary" @click="openReceiptShare">Надіслати копію</button>
+        </div>
+      </div>
+      <div v-if="zReportPrintData?.archiveId" class="fiscal-document-selected">
+        <div>
+          <strong>Відкрито Z-звіт №{{ zReportPrintData.reportNumber }}</strong>
+          <small>ID ДПС: {{ zReportPrintData.fiscalDocumentId }}</small>
+        </div>
+        <div class="fiscal-document-selected-actions">
+          <button type="button" class="button-primary" @click="printZReport">Роздрукувати Z-звіт</button>
         </div>
       </div>
     </section>
@@ -2098,6 +2240,79 @@ onBeforeUnmount(() => {
       </p>
     </section>
 
+    <section v-if="zReportPrintData" class="print-receipt print-zreport" aria-hidden="true">
+      <header class="print-receipt__header">
+        <strong class="print-receipt__brand">БАГЕТ</strong>
+        <div class="print-receipt__title">Z-ЗВІТ · КОПІЯ</div>
+        <div v-if="zReportPrintData.isTestDocument" class="print-receipt__warning">
+          ТЕСТОВИЙ ДОКУМЕНТ<br />НЕ Є ФІСКАЛЬНИМ Z-ЗВІТОМ
+        </div>
+        <div v-else class="print-receipt__warning">КОПІЯ ФІСКАЛЬНОГО Z-ЗВІТУ</div>
+      </header>
+
+      <div class="print-receipt__meta">
+        <div>{{ zReportPrintData.branchName }}</div>
+        <div>{{ zReportPrintData.deviceName }}</div>
+        <div>ФН ПРРО: {{ zReportPrintData.fiscalNumber }}</div>
+        <div v-if="zReportPrintData.taxpayerNumber">ЄДРПОУ / РНОКПП: {{ zReportPrintData.taxpayerNumber }}</div>
+        <div v-if="zReportPrintData.serialNumber">Заводський номер: {{ zReportPrintData.serialNumber }}</div>
+        <div>Номер Z-звіту: {{ zReportPrintData.reportNumber }}</div>
+        <div>Дата і час: {{ formatDpsDateTime(zReportPrintData.dateTime) }}</div>
+      </div>
+
+      <div class="print-receipt__separator"></div>
+      <div class="print-zreport__heading">ОБОРОТИ ЗА ФОРМАМИ ОПЛАТИ</div>
+      <div v-for="payment in zReportPrintData.payments" :key="payment.key" class="print-zreport__block">
+        <strong>{{ payment.name }}</strong>
+        <div class="print-receipt__row"><span>Продажі</span><span>{{ payment.received }}</span></div>
+        <div class="print-receipt__row"><span>Повернення</span><span>{{ payment.paid }}</span></div>
+      </div>
+      <p v-if="!zReportPrintData.payments.length" class="print-zreport__empty">Дані про обороти за формами оплати відсутні.</p>
+
+      <div class="print-receipt__separator"></div>
+      <div class="print-zreport__heading">ПОДАТКИ ЗА ГРУПАМИ</div>
+      <div v-for="tax in zReportPrintData.taxes" :key="tax.key" class="print-zreport__block">
+        <strong>Група {{ tax.code }} · ставка {{ tax.rate }}</strong>
+        <div class="print-receipt__row"><span>Оборот продажів</span><span>{{ tax.receivedTurnover }}</span></div>
+        <div class="print-receipt__row"><span>Податок з продажів</span><span>{{ tax.receivedTax }}</span></div>
+        <div class="print-receipt__row"><span>Оборот повернень</span><span>{{ tax.paidTurnover }}</span></div>
+        <div class="print-receipt__row"><span>Податок з повернень</span><span>{{ tax.paidTax }}</span></div>
+        <template v-if="tax.additionalRate !== '—' || tax.additionalReceivedTax !== '—' || tax.additionalPaidTax !== '—'">
+          <div class="print-receipt__row"><span>Додаткова ставка</span><span>{{ tax.additionalRate }}</span></div>
+          <div class="print-receipt__row"><span>Додатковий податок · продажі</span><span>{{ tax.additionalReceivedTax }}</span></div>
+          <div class="print-receipt__row"><span>Додатковий податок · повернення</span><span>{{ tax.additionalPaidTax }}</span></div>
+        </template>
+      </div>
+      <p v-if="!zReportPrintData.taxes.length" class="print-zreport__empty">Податкові підсумки відсутні.</p>
+
+      <div class="print-receipt__separator"></div>
+      <div class="print-zreport__heading">СЛУЖБОВЕ ВНЕСЕННЯ / ВИДАЧА</div>
+      <div v-for="movement in zReportPrintData.movements" :key="movement.key" class="print-zreport__block">
+        <strong>{{ movement.name }}</strong>
+        <div class="print-receipt__row"><span>Внесення</span><span>{{ movement.received }}</span></div>
+        <div class="print-receipt__row"><span>Видача</span><span>{{ movement.paid }}</span></div>
+      </div>
+      <p v-if="!zReportPrintData.movements.length" class="print-zreport__empty">Службові внесення та видачі відсутні.</p>
+
+      <div class="print-receipt__separator"></div>
+      <div class="print-zreport__heading">КІЛЬКІСТЬ РОЗРАХУНКОВИХ ДОКУМЕНТІВ</div>
+      <div class="print-receipt__row"><span>Чеки продажу</span><strong>{{ zReportPrintData.salesCount }}</strong></div>
+      <div class="print-receipt__row"><span>Чеки повернення</span><strong>{{ zReportPrintData.returnsCount }}</strong></div>
+
+      <div class="print-receipt__separator"></div>
+      <div class="print-receipt__meta print-receipt__footer">
+        <div>Джерело: оригінальна відповідь ДПС / data_sign</div>
+        <div>Локальна операція Baget: №{{ zReportPrintData.localOperationNumber }}</div>
+        <div>ID документа ДПС: {{ zReportPrintData.fiscalDocumentId }}</div>
+        <div>Код відповіді: {{ zReportPrintData.responseCode ?? "—" }}</div>
+      </div>
+      <p class="print-receipt__disclaimer">
+        {{ zReportPrintData.isTestDocument
+          ? "Документ отримано з тестового середовища ДПС. Він не є фіскальним Z-звітом."
+          : "Копію сформовано за даними оригінального документа, отриманого від production API ДПС." }}
+      </p>
+    </section>
+
     <div id="iit-widget-overlay" class="iit-widget-overlay" :class="{ visible: widgetVisible }">
       <div class="iit-widget-dialog">
         <div class="iit-widget-title">Підписання КЕП · ІІТ</div>
@@ -2199,6 +2414,10 @@ button:disabled { opacity:.48; cursor:not-allowed; }
   .print-receipt__row,.print-receipt__total { display:flex; justify-content:space-between; gap:8px; }
   .print-receipt__total { font-size:14px; margin:8px 0; }
   .print-receipt__footer { font-size:10px; }
+  .print-zreport__heading { margin:8px 0 5px; font-weight:800; font-size:11px; text-align:center; }
+  .print-zreport__block { margin:5px 0 8px; }
+  .print-zreport__block>strong { display:block; margin-bottom:3px; }
+  .print-zreport__empty { margin:4px 0 8px; font-size:10px; font-style:italic; }
   .print-receipt__disclaimer { margin:10px 0 0; text-align:center; font-size:10px; font-weight:600; }
 }
 @media(max-width:850px) { .operation-grid { grid-template-columns:1fr; }.status-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }.payment-check-row { grid-template-columns:minmax(0,1fr) auto; }.payment-check-row button { grid-column:1 / -1; } }
