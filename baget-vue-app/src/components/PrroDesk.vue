@@ -517,6 +517,7 @@ async function issuePaymentCheck(payment) {
       operationId: prepared.operationId,
       signerKeyId,
       signedPayloadBase64,
+      rroSignatureBase64,
     });
     testCheckResult.value = submitted;
 
@@ -727,6 +728,7 @@ async function openShift() {
       operationId: prepared.operationId,
       signerKeyId,
       signedPayloadBase64,
+      rroSignatureBase64,
     });
 
     if (shiftOpenResult.value.status === "FISCALIZED") {
@@ -816,6 +818,7 @@ async function closeShift() {
       operationId: prepared.operationId,
       signerKeyId,
       signedPayloadBase64,
+      rroSignatureBase64,
     });
 
     if (shiftCloseResult.value.status === "FISCALIZED") {
@@ -912,6 +915,7 @@ async function issueTestCheck() {
       operationId: prepared.operationId,
       signerKeyId,
       signedPayloadBase64,
+      rroSignatureBase64,
     });
 
     if (testCheckResult.value.status === "FISCALIZED") {
