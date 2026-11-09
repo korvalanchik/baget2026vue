@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
-import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, cancelPrroPreparedShiftOpen, preparePrroShiftClose, submitPrroShiftClose, preparePrroTestCheck, submitPrroTestCheck, getPrroRecentPayments, preparePrroPaymentCheck, submitPrroPaymentCheck, getPrroFiscalDocuments, getPrroFiscalDocument } from "../services/prro.js";
+import { getPrroBranches, getPrroDeviceForBranch, getPrroShiftStatus, inspectLastPrroCheck, inspectRro, preparePrroShiftOpen, submitPrroShiftOpen, cancelPrroPreparedShiftOpen, preparePrroShiftClose, submitPrroShiftClose, preparePrroTestCheck, submitPrroTestCheck, getPrroRecentPayments, preparePrroPaymentCheck, submitPrroPaymentCheck, getPrroFiscalDocuments, getPrroFiscalDocument, getPrroReceiptDetails } from "../services/prro.js";
 
 const props = defineProps({ session: { type: Object, required: true } });
 const canRunDiagnostics = computed(() => props.session.roles?.some(role => ["ROLE_ADMIN", "ROLE_SENIOR_CASHIER"].includes(role)) === true);
@@ -26,6 +26,8 @@ const shiftCloseResult = ref(null);
 const shiftCloseIdempotencyKey = ref("");
 const testCheckResult = ref(null);
 const receiptPrintData = ref(null);
+const receiptDetails = ref(null);
+const receiptDetailsError = ref("");
 const receiptPrintError = ref("");
 const canPrintReceipt = computed(() => !!receiptPrintData.value);
 const zReportPrintData = ref(null);
@@ -137,6 +139,8 @@ async function loadDeviceForBranch() {
   lastCheckError.value = "";
   testCheckResult.value = null;
   receiptPrintData.value = null;
+  receiptDetails.value = null;
+  receiptDetailsError.value = "";
   zReportPrintData.value = null;
   receiptPrintError.value = "";
   shareDialogVisible.value = false;
@@ -162,7 +166,7 @@ async function loadDeviceForBranch() {
     const device = await getPrroDeviceForBranch(props.session.token, selectedBranch);
     fiscalNumber.value = device.fiscalNumber;
     deviceName.value = device.displayName;
-    await Promise.all([loadRecentPayments(), loadFiscalDocuments(true)]);
+    await Promise.all([loadRecentPayments(), loadFiscalDocuments(true), loadReceiptDetails()]);
   } catch (e) {
     if (e.status !== 404) error.value = e.message || "Не вдалося завантажити налаштування каси.";
   }
@@ -313,6 +317,18 @@ async function cancelPendingShiftOpen() {
   }
 }
 
+async function loadReceiptDetails() {
+  const selectedBranch = branchNo.value.trim();
+  receiptDetails.value = null;
+  receiptDetailsError.value = "";
+  if (!selectedBranch) return;
+  try {
+    receiptDetails.value = await getPrroReceiptDetails(props.session.token, selectedBranch);
+  } catch (e) {
+    receiptDetailsError.value = e.message || "Не вдалося завантажити реквізити продавця та господарської одиниці.";
+  }
+}
+
 async function loadRecentPayments() {
   const selectedBranch = branchNo.value.trim();
   recentPayments.value = [];
@@ -420,8 +436,12 @@ async function openArchivedDocument(document) {
       if (dpsReceipt.receiptNumber !== String(archived.localNumber)) {
         throw new Error("Номер чека в оригіналі документа не збігається з локальним номером операції.");
       }
+      if (!receiptDetails.value) {
+        throw new Error(receiptDetailsError.value || "Не завантажено реквізити суб'єкта господарювання та філії.");
+      }
       receiptPrintData.value = {
         ...dpsReceipt,
+        ...receiptDetails.value,
         branchName: archived.branchName,
         deviceName: archived.deviceName,
         fiscalDocumentId: archived.fiscalDocumentId,
@@ -543,8 +563,12 @@ async function issuePaymentCheck(payment) {
         if (dpsReceipt.fiscalNumber !== number) {
           throw new Error("Фіскальний номер у lastChk не збігається з вибраним ПРРО.");
         }
+        if (!receiptDetails.value) {
+          throw new Error(receiptDetailsError.value || "Не завантажено реквізити суб'єкта господарювання та філії.");
+        }
         receiptPrintData.value = {
           ...dpsReceipt,
+          ...receiptDetails.value,
           branchName: selectedBranchName.value,
           deviceName: deviceName.value || "ПРРО",
           fiscalDocumentId: lastCheck.fiscalDocumentId,
