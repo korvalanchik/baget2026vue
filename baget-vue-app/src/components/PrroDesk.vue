@@ -1517,7 +1517,7 @@ function createReceiptImageBlob(data) {
     addRow("СУМА", data.total, "bold 24px Arial", 34);
     y += 8;
     addText(data.isTestDocument ? "НЕ Є ФІСКАЛЬНИМ ЧЕКОМ" : "ФІСКАЛЬНИЙ ЧЕК",
-      "bold 17px Arial", { align: "center", lineHeight: 24, before: 8, after: 4 });
+      "bold 17px Arial", { align: "center", lineHeight: 24, after: 4 });
 
 
 
