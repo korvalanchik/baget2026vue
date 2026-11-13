@@ -1490,11 +1490,9 @@ function createReceiptImageBlob(data) {
       y += 16;
     }
 
-    addText(data.companyName || "Суб'єкт господарювання", "bold 25px Arial", {
-      align: "center", lineHeight: 32, after: 8,
+    addText(data.companyName || "Суб'єкт господарювання", "18px Arial", {
+      align: "center", lineHeight: 25, after: 8,
     });
-    addText(data.isTestDocument ? "НЕ Є ФІСКАЛЬНИМ ЧЕКОМ" : "ФІСКАЛЬНИЙ ЧЕК",
-      "bold 20px Arial", { align: "center", lineHeight: 27, after: 10 });
     addText((data.taxIdLabel || "ІД") + ": " + (data.taxId || "—"), "18px Arial", { lineHeight: 26 });
     addText(data.branchName || "Господарська одиниця", "18px Arial", { lineHeight: 26 });
     addText(data.branchAddress || "Адресу господарської одиниці не вказано", "18px Arial", { lineHeight: 26 });
@@ -1518,6 +1516,8 @@ function createReceiptImageBlob(data) {
     addSeparator();
     addRow("СУМА", data.total, "bold 24px Arial", 34);
     y += 8;
+    addText(data.isTestDocument ? "НЕ Є ФІСКАЛЬНИМ ЧЕКОМ" : "ФІСКАЛЬНИЙ ЧЕК",
+      "bold 17px Arial", { align: "center", lineHeight: 24, before: 8, after: 4 });
 
 
 
@@ -2196,10 +2196,7 @@ onBeforeUnmount(() => {
 
     <section v-if="receiptPrintData" class="print-receipt" aria-hidden="true">
       <header class="print-receipt__header">
-        <strong class="print-receipt__brand">{{ receiptPrintData.companyName }}</strong>
-        <div class="print-receipt__warning">
-          {{ receiptPrintData.isTestDocument ? "НЕ Є ФІСКАЛЬНИМ ЧЕКОМ" : "ФІСКАЛЬНИЙ ЧЕК" }}
-        </div>
+        <div class="print-receipt__brand">{{ receiptPrintData.companyName }}</div>
         <div class="print-receipt__title">{{ receiptPrintData.receiptType }}</div>
       </header>
 
@@ -2232,8 +2229,10 @@ onBeforeUnmount(() => {
         <strong>СУМА</strong>
         <strong>{{ receiptPrintData.total }}</strong>
       </div>
-
-
+      <div class="print-receipt__separator"></div>
+      <div class="print-receipt__warning">
+        {{ receiptPrintData.isTestDocument ? "НЕ Є ФІСКАЛЬНИМ ЧЕКОМ" : "ФІСКАЛЬНИЙ ЧЕК" }}
+      </div>
     </section>
 
     <section v-if="zReportPrintData" class="print-receipt print-zreport" aria-hidden="true">
@@ -2396,14 +2395,15 @@ button:disabled { opacity:.48; cursor:not-allowed; }
     line-height:1.35;
   }
   .print-receipt__header { text-align:center; }
-  .print-receipt__brand { display:block; font-size:20px; letter-spacing:.12em; }
+  .print-receipt__brand { display:block; font-size:13px; font-weight:400; letter-spacing:normal; }
   .print-receipt__title { margin:4px 0 7px; font-weight:700; }
   .print-receipt__warning {
-    border:2px solid #000;
-    padding:6px 4px;
-    font-size:13px;
-    font-weight:800;
-    line-height:1.4;
+    border:1px solid #000;
+    padding:5px 4px;
+    font-size:11px;
+    font-weight:700;
+    line-height:1.35;
+    text-align:center;
   }
   .print-receipt__meta { margin:9px 0; overflow-wrap:anywhere; }
   .print-receipt__separator { border-top:1px dashed #000; margin:8px 0; }
