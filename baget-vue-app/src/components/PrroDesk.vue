@@ -1271,6 +1271,7 @@ function parseDpsReceipt(dataSignBase64) {
     }
     return {
       key: payment.getAttribute("N") || String(index),
+      type: payment.getAttribute("T") || "0",
       name: payment.getAttribute("NM") || "Оплата",
       amount: formatDpsMoney(amountMinor),
     };
@@ -1511,7 +1512,15 @@ function createReceiptImageBlob(data) {
 
     addSeparator();
     for (const payment of data.payments || []) {
-      addRow("Оплата: " + payment.name, payment.amount, "18px Arial", 27);
+      addRow(
+        payment.type === "0" ? "Форма оплати: ГОТІВКА" : "Форма оплати: БЕЗГОТІВКА",
+        payment.amount,
+        "18px Arial",
+        27,
+      );
+      if (payment.type !== "0") {
+        addText("Засіб оплати: " + payment.name, "18px Arial", { lineHeight: 26 });
+      }
     }
     addSeparator();
     addRow("СУМА", data.total, "bold 24px Arial", 34);
@@ -2220,10 +2229,15 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="print-receipt__separator"></div>
-      <div v-for="payment in receiptPrintData.payments" :key="payment.key" class="print-receipt__row">
-        <span>Оплата: {{ payment.name }}</span>
-        <span>{{ payment.amount }}</span>
-      </div>
+      <template v-for="payment in receiptPrintData.payments" :key="payment.key">
+        <div class="print-receipt__row">
+          <span>Форма оплати: {{ payment.type === "0" ? "ГОТІВКА" : "БЕЗГОТІВКА" }}</span>
+          <span>{{ payment.amount }}</span>
+        </div>
+        <div v-if="payment.type !== '0'" class="print-receipt__row">
+          <span>Засіб оплати: {{ payment.name }}</span>
+        </div>
+      </template>
       <div class="print-receipt__separator"></div>
       <div class="print-receipt__total">
         <strong>СУМА</strong>
