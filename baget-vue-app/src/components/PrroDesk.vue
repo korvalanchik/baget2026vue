@@ -33,6 +33,7 @@ const canPrintReceipt = computed(() => !!receiptPrintData.value);
 const zReportPrintData = ref(null);
 const canPrintZReport = computed(() => !!zReportPrintData.value);
 const recentPayments = ref([]);
+const legacyPaymentInstruments = ref({});
 const paymentCheckError = ref("");
 const fiscalDocuments = ref([]);
 const fiscalDocumentsLoading = ref(false);
@@ -513,11 +514,17 @@ async function issuePaymentCheck(payment) {
     }
 
     message.value = "Baget перевіряє збережений платіж і готує CHK із фактичної суми надходження…";
+    const paymentInstrument = payment.requiresPaymentInstrument
+      ? legacyPaymentInstruments.value[payment.paymentRequestKey] : null;
+    if (payment.requiresPaymentInstrument && !paymentInstrument) {
+      throw new Error("Для цього старого платежу BANK оберіть фактичний засіб оплати.");
+    }
     const prepared = await preparePrroPaymentCheck(props.session.token, payment.paymentRequestKey, {
       branchNo: Number(selectedBranch),
       fiscalNumber: number,
       rroSignatureBase64,
       signerKeyId,
+      paymentInstrument,
     });
 
     const xml = decodeSigningInput(prepared.signingInputBase64);
@@ -2093,8 +2100,18 @@ onBeforeUnmount(() => {
           <strong class="payment-check-amount">
             {{ new Intl.NumberFormat("uk-UA", { style: "currency", currency: "UAH" }).format(Number(payment.amount || 0)) }}
           </strong>
+          <label v-if="payment.requiresPaymentInstrument" class="legacy-payment-instrument">
+            Засіб оплати для старого платежу
+            <select v-model="legacyPaymentInstruments[payment.paymentRequestKey]" :disabled="busy">
+              <option value="">Оберіть фактичний засіб</option>
+              <option value="CARD_POS">Картка через POS-термінал (ЕПЗ)</option>
+              <option value="INTERNET_ACQUIRING">Інтернет-еквайринг</option>
+              <option value="QR_TRANSFER">Переказ через QR-код</option>
+              <option value="BANK_TRANSFER">Переказ на банківський рахунок</option>
+            </select>
+          </label>
           <button type="button" class="button-secondary"
-            :disabled="busy || !canCreatePaymentCheck || !['NOT_PREPARED', 'PREPARED'].includes(payment.operationStatus)"
+            :disabled="busy || !canCreatePaymentCheck || !['NOT_PREPARED', 'PREPARED'].includes(payment.operationStatus) || (payment.requiresPaymentInstrument && !legacyPaymentInstruments[payment.paymentRequestKey])"
             @click="issuePaymentCheck(payment)">
             {{ activePaymentRequestKey === payment.paymentRequestKey ? "Виконується…" : payment.operationStatus === "PREPARED" ? "Продовжити підготовку" : isTestEndpoint ? "Підготувати тестовий чек" : "Підготувати фіскальний чек" }}
           </button>
@@ -2378,7 +2395,7 @@ button:disabled { opacity:.48; cursor:not-allowed; }
 .payment-check-copy strong { font-size:14px; overflow-wrap:anywhere; }
 .payment-check-copy span,.payment-check-copy small { color:#667085; font-size:12px; }
 .payment-check-amount { white-space:nowrap; font-size:14px; }
-.payment-check-row button { min-height:40px; border:0; border-radius:9px; padding:9px 12px; font:inherit; font-size:12px; font-weight:650; cursor:pointer; }
+.legacy-payment-instrument{display:grid;gap:5px;font-size:12px;color:#667085}.legacy-payment-instrument select{min-width:0;width:100%;padding:8px;border:1px solid #cfd6df;border-radius:8px;font:inherit}.payment-check-row button { min-height:40px; border:0; border-radius:9px; padding:9px 12px; font:inherit; font-size:12px; font-weight:650; cursor:pointer; }
 .diagnostics-section { border:1px solid #e0e5eb; border-radius:12px; background:#f8fafc; padding:14px 16px; }
 .diagnostics-section>summary { list-style:none; }.diagnostics-section>summary::-webkit-details-marker { display:none; }
 .diagnostics-section>summary span { display:grid; gap:3px; }.diagnostics-section>summary strong { color:#344054; font-size:14px; }.diagnostics-section>summary small { color:#667085; font-size:12px; font-weight:400; }
