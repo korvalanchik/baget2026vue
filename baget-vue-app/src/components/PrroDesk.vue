@@ -1747,16 +1747,7 @@ onBeforeUnmount(() => {
         <button type="button" class="button-primary" :disabled="busy || !branchNo" @click="refreshShift">
           {{ busy ? "Виконується…" : "Підписати та оновити стан" }}
         </button>
-        <button v-if="canCancelPreparedShiftOpen" type="button" class="button-secondary"
-          :disabled="busy"
-          @click="cancelPendingShiftOpen">
-          Скасувати незавершене локальне відкриття
-        </button>
       </div>
-      <p v-if="canCancelPreparedShiftOpen" class="reconciliation-warning">
-        Локальна операція відкриття залишилася у PREPARED, але ДПС підтверджує закриту зміну.
-        Скасування дозволене лише після повторної перевірки ДПС на сервері.
-      </p>
 
       <p v-if="message" role="status" class="feedback feedback-success">{{ message }}</p>
       <p v-if="error" role="alert" class="feedback feedback-error">{{ error }}</p>
@@ -1805,6 +1796,14 @@ onBeforeUnmount(() => {
           <button type="button" class="button-secondary" :disabled="!canOpenShift" @click="openShift">
             {{ busy ? "Виконується…" : "Відкрити зміну" }}
           </button>
+          <button v-if="canCancelPreparedShiftOpen" type="button" class="button-secondary"
+            :disabled="busy" @click="cancelPendingShiftOpen">
+            Скасувати незавершене локальне відкриття
+          </button>
+          <p v-if="canCancelPreparedShiftOpen" class="reconciliation-warning">
+            Локальна операція відкриття залишилася у PREPARED, але ДПС підтверджує закриту зміну.
+            Скасування дозволене лише після повторної перевірки ДПС на сервері.
+          </p>
         </article>
         <article class="prro-panel operation-card">
           <div class="operation-icon">↻</div>
