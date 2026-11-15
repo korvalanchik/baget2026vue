@@ -9,14 +9,14 @@ import { productInvoices, productInvoicePdf } from '../services/productInvoices.
 const props = defineProps({ session: { type: Object, required: true }, initialTab: { type: String, default: 'ready' } })
 const tab = ref(['ready', 'invoices', 'receivables', 'reconciliation'].includes(props.initialTab) ? props.initialTab : 'ready'), ready = ref([]), invoices = ref([]), page = ref(0), picked = ref([]), chosenInvoices = ref([])
 const busy = ref(false), error = ref(''), message = ref(''), detail = ref(null), options = ref({ branches: [], payers: [], partners: [] })
-const cashAccount = ref(null)
+const cashAccount = ref(null), cashAccountKind = ref(null), paymentInstrument = ref('')
 const partnerFilter = ref(''), reconciliationPartner = ref(null)
 const payerSearch = ref(''), payer = ref(null), branch = ref(''), note = ref(''), amount = ref(''), advance = ref(''), paymentPending = ref(false)
 let retry = null, paymentRetry = null
 const paymentKey = () => `baget.invoice-payment.${props.session.username || props.session.nickname || 'session'}.${detail.value?.id}`
 function restorePayment() {
  paymentRetry = JSON.parse(sessionStorage.getItem(paymentKey()) || 'null'); paymentPending.value = !!paymentRetry
- amount.value = paymentRetry?.amount ?? ''; advance.value = paymentRetry?.allocationAmount ?? ''; cashAccount.value = null
+ amount.value = paymentRetry?.amount ?? ''; advance.value = paymentRetry?.allocationAmount ?? ''; cashAccount.value = null; cashAccountKind.value = null; paymentInstrument.value = paymentRetry?.paymentInstrument ?? ''
 }
 const money = n => Number(n || 0).toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const status = { ISSUED: 'Виставлено', PARTIALLY_PAID: 'Частково оплачено', PAID: 'Оплачено', CANCELLED: 'Скасовано' }
@@ -68,14 +68,15 @@ function payment() { return run(async () => {
   if (!paymentRetry) {
     const { cash, advance: allocated } = paymentAmounts(amount.value, advance.value, detail.value.debt, detail.value.availableAdvance)
     if (cash > 0 && !cashAccount.value) throw new Error('Оберіть касу або рахунок для надходження')
+    if (cash > 0 && cashAccountKind.value === 'BANK' && !paymentInstrument.value) throw new Error('Для банківського рахунку оберіть фактичний засіб оплати')
     if (!window.confirm(`Підтвердити оплату ${money(cash)} грн і зарахування авансу ${money(allocated)} грн?`)) return
-    const payload = { cashAccountId: cash > 0 ? cashAccount.value : null, amount: cash, allocationAmount: allocated, expectedDebt: detail.value.debt, note: note.value, requestKey: newRequestKey() }
+    const payload = { cashAccountId: cash > 0 ? cashAccount.value : null, paymentInstrument: cash > 0 && cashAccountKind.value === 'BANK' ? paymentInstrument.value : null, amount: cash, allocationAmount: allocated, expectedDebt: detail.value.debt, note: note.value, requestKey: newRequestKey() }
     sessionStorage.setItem(paymentKey(), JSON.stringify(payload)); paymentRetry = payload
   }
   paymentPending.value = true
   try {
     detail.value = await productInvoices(props.session.token, `/${detail.value.id}/payment`, paymentRetry)
-    sessionStorage.removeItem(paymentKey()); paymentRetry = null; paymentPending.value = false; amount.value = ''; advance.value = ''; message.value = 'Операцію проведено.'; await load()
+    sessionStorage.removeItem(paymentKey()); paymentRetry = null; paymentPending.value = false; amount.value = ''; advance.value = ''; cashAccount.value = null; cashAccountKind.value = null; paymentInstrument.value = ''; message.value = 'Операцію проведено.'; await load()
   } catch (e) {
     if ([400, 403, 404, 409, 422].includes(e.status)) { sessionStorage.removeItem(paymentKey()); paymentRetry = null; paymentPending.value = false }
     throw e
@@ -115,7 +116,16 @@ onMounted(() => run(async () => { options.value = await productInvoices(props.se
    <p v-for="target in detail.mergedInto" :key="target.id">Залишок перенесено до <button :disabled="busy" @click="open(target.id)">рахунку № {{ target.invoiceNo }}</button></p>
    <details><summary>Історія рахунку</summary><p v-for="(e, index) in detail.history" :key="index">{{ e.createdAt }} · {{ ({ INVOICE: 'Виставлення', PAYMENT: 'Оплата', ADVANCE_ALLOCATION: 'Зарахування авансу', INVOICE_MERGE_IN: 'Перенесення до нового рахунку', INVOICE_MERGE_OUT: 'Прийнятий борг' })[e.type] || e.type }}: {{ money(e.amount) }} грн. {{ e.note }}</p></details>
    <p>При об’єднанні залишок боргу розподіляється пропорційно між позиціями. Це розподіл залишку для нового документа, а не історія оплати конкретного виробу.</p>
-   <fieldset v-if="detail.lifecycle === 'ACTIVE' && detail.status !== 'CANCELLED' && Number(detail.debt) > 0" :disabled="busy || paymentPending"><legend>Оплата / зарахування авансу</legend><p>Доступний аванс платника: {{ money(detail.availableAdvance) }} грн.</p><div class="tools"><CashAccountPicker v-if="Number(amount) > 0" v-model="cashAccount" :key="detail.id" :session="session" :invoice-id="detail.id" :disabled="busy || paymentPending" /><label>Нова оплата, грн<input v-model="amount" type="number" min="0" step="0.01"></label><label>Зарахувати аванс, грн<input v-model="advance" type="number" min="0" step="0.01"></label></div><label v-if="tab === 'invoice'">Примітка до оплати<textarea v-model="note" maxlength="1000"></textarea></label><button @click="payment">Провести операцію</button></fieldset>
+   <fieldset v-if="detail.lifecycle === 'ACTIVE' && detail.status !== 'CANCELLED' && Number(detail.debt) > 0" :disabled="busy || paymentPending"><legend>Оплата / зарахування авансу</legend><p>Доступний аванс платника: {{ money(detail.availableAdvance) }} грн.</p><div class="tools"><CashAccountPicker v-if="Number(amount) > 0" v-model="cashAccount" v-model:kind="cashAccountKind" :key="detail.id" :session="session" :invoice-id="detail.id" :disabled="busy || paymentPending" />
+   <label v-if="Number(amount) > 0 && cashAccountKind === 'BANK'">Засіб оплати
+    <select v-model="paymentInstrument" required :disabled="busy || paymentPending">
+     <option value="">Оберіть фактичний засіб оплати</option>
+     <option value="CARD_POS">Картка через POS-термінал (ЕПЗ)</option>
+     <option value="INTERNET_ACQUIRING">Інтернет-еквайринг</option>
+     <option value="QR_TRANSFER">Переказ через QR-код</option>
+     <option value="BANK_TRANSFER">Переказ на банківський рахунок</option>
+    </select>
+   </label><label>Нова оплата, грн<input v-model="amount" type="number" min="0" step="0.01"></label><label>Зарахувати аванс, грн<input v-model="advance" type="number" min="0" step="0.01"></label></div><label v-if="tab === 'invoice'">Примітка до оплати<textarea v-model="note" maxlength="1000"></textarea></label><button @click="payment">Провести операцію</button></fieldset>
    <p v-if="paymentPending" role="alert">Результат платежу ще не підтверджений. Повторна перевірка не створює нового платежу. <button :disabled="busy" @click="payment">Перевірити / повторити цей платіж</button></p>
   </article>
   </template>

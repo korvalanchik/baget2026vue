@@ -144,20 +144,6 @@ export function submitPrroShiftClose(token, request) {
   });
 }
 
-export function preparePrroTestCheck(token, request) {
-  return adminRequest(token, "/api/prro/test-check/prepare", {
-    method: "POST",
-    body: JSON.stringify(request),
-  });
-}
-
-export function submitPrroTestCheck(token, request) {
-  return adminRequest(token, "/api/prro/test-check/submit", {
-    method: "POST",
-    body: JSON.stringify(request),
-  });
-}
-
 export function getPrroRecentPayments(token, branchNo) {
   return adminRequest(token, `/api/prro/payments/recent?branchNo=${Number(branchNo)}`);
 }
@@ -193,4 +179,11 @@ export function getPrroFiscalDocument(token, documentId) {
 
 export function getPrroReceiptDetails(token, branchNo) {
   return adminRequest(token, `/api/prro/receipt-details/${Number(branchNo)}`);
+}
+
+export function getPrroReceiptQr(token, branchNo, request) {
+  return adminRequest(token, `/api/prro/receipt-details/${Number(branchNo)}/qr`, {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
 }
