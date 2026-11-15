@@ -8,7 +8,7 @@ import { paymentAmounts } from '../calculation/customerPayment.js'
 const props = defineProps({ session: { type: Object, required: true }, customerId: { type: Number, default: null }, branchNo: { type: Number, default: null }, orderNo: { type: Number, default: null }, invoiceId: { type: Number, default: null } })
 const emit = defineEmits(['paid', 'busy'])
 const context = ref(null), data = ref(null), busy = ref(false), error = ref(''), notice = ref(''), opened = ref(false)
-const cashAccount = ref(null)
+const cashAccount = ref(null), cashAccountKind = ref(null), paymentInstrument = ref('')
 const invoice = ref(null), amount = ref('0'), allocation = ref('0'), note = ref(''), pending = ref(null)
 const money = value => new Intl.NumberFormat('uk-UA', { style: 'currency', currency: 'UAH' }).format(Number(value || 0))
 const key = computed(() => `baget.payment.${props.session.nickname || props.session.username || 'session'}.${context.value?.customerId}.${context.value?.branchNo}`)
@@ -31,7 +31,7 @@ function open(i = null, focus = true) {
   if (busy.value || pending.value) return
   invoice.value = i; allocation.value = String(i ? Math.min(Number(i.debt), Number(data.value.availableAdvance)) : 0)
   amount.value = String(i ? Math.max(0, Math.round((Number(i.debt) - Number(allocation.value)) * 100) / 100) : 0)
-  cashAccount.value = null; note.value = ''; error.value = ''; notice.value = ''; opened.value = true
+  cashAccount.value = null; cashAccountKind.value = null; paymentInstrument.value = ''; note.value = ''; error.value = ''; notice.value = ''; opened.value = true
   if (focus) nextTick(() => paymentForm.value?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }))
 }
 function remainder() { amount.value = String(Math.max(0, Math.round((Number(invoice.value.debt) - Number(allocation.value || 0)) * 100) / 100)) }
@@ -42,7 +42,7 @@ async function save() {
     if (!pending.value) {
       const sums = paymentAmounts(amount.value, invoice.value ? allocation.value : 0, invoice.value?.debt, data.value.availableAdvance)
       if (Number(sums.amount) > 0 && !cashAccount.value) throw new Error('Оберіть касу або рахунок для нових коштів')
-      const request = { cashAccountId: Number(sums.amount) > 0 ? cashAccount.value : null, requestKey: newRequestKey(), branchNo: Number(context.value.branchNo), invoiceId: invoice.value?.id || null, ...sums, note: note.value.trim() }
+      const request = { cashAccountId: Number(sums.amount) > 0 ? cashAccount.value : null, paymentInstrument: Number(sums.amount) > 0 && cashAccountKind.value === 'BANK' ? paymentInstrument.value : null, requestKey: newRequestKey(), branchNo: Number(context.value.branchNo), invoiceId: invoice.value?.id || null, ...sums, note: note.value.trim() }
       // Persist BEFORE sending. A lost response can be retried with the same key/body.
       sessionStorage.setItem(key.value, JSON.stringify(request)); pending.value = request
     }
@@ -74,7 +74,16 @@ watch(() => [props.customerId, props.branchNo, props.orderNo, props.invoiceId], 
       <form ref="paymentForm" v-if="opened && !pending" @submit.prevent="save"><fieldset :disabled="busy"><legend>{{ invoice ? `Оплата рахунку № ${invoice.invoiceNo}` : 'Аванс на баланс клієнта' }}</legend>
         <template v-if="invoice"><p>Сума рахунку: {{ money(invoice.total) }} · оплачено: {{ money(invoice.paid) }}.</p><p>Рахунок може охоплювати кілька виробів. Оплата зараховується на весь рахунок.</p><p>До сплати: {{ money(invoice.debt) }}. Доступний аванс: {{ money(data.availableAdvance) }}.</p><label>Використати з авансу<input v-model="allocation" type="number" min="0" :max="Math.min(Number(invoice.debt), Number(data.availableAdvance))" step="0.01" required></label><button type="button" @click="remainder">Доплатити решту новими коштами</button></template>
         <label>{{ invoice ? 'Прийняти нових коштів' : 'Сума авансу' }}<input v-model="amount" type="number" min="0" step="0.01" required></label>
-        <CashAccountPicker v-if="Number(amount) > 0" v-model="cashAccount" :session="session" :branch-no="context.branchNo" :disabled="busy" />
+        <CashAccountPicker v-if="Number(amount) > 0" v-model="cashAccount" v-model:kind="cashAccountKind" :session="session" :branch-no="context.branchNo" :disabled="busy" />
+        <label v-if="Number(amount) > 0 && cashAccountKind === 'BANK'">Засіб оплати
+          <select v-model="paymentInstrument" required>
+            <option disabled value="">Оберіть фактичний засіб оплати</option>
+            <option value="CARD_POS">Картка через POS-термінал (ЕПЗ)</option>
+            <option value="INTERNET_ACQUIRING">Інтернет-еквайринг</option>
+            <option value="QR_TRANSFER">Переказ через QR-код</option>
+            <option value="BANK_TRANSFER">Переказ на банківський рахунок</option>
+          </select>
+        </label>
         <label>Примітка<input v-model="note" maxlength="2000" placeholder="Спосіб оплати / номер платежу"></label>
         <p v-if="invoice">Погашення: {{ money(Number(amount || 0) + Number(allocation || 0)) }}. Залишиться борг: {{ money(Math.max(0, Number(invoice.debt) - Number(amount || 0) - Number(allocation || 0))) }}.</p>
         <button type="submit">Провести оплату</button><button type="button" @click="opened = false">Скасувати</button>
