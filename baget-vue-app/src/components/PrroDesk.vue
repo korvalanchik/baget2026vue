@@ -24,7 +24,6 @@ const shiftOpenResult = ref(null);
 const shiftOpenIdempotencyKey = ref("");
 const shiftCloseResult = ref(null);
 const shiftCloseIdempotencyKey = ref("");
-const paymentCheckResult = ref(null);
 const receiptPrintData = ref(null);
 const receiptDetails = ref(null);
 const receiptDetailsError = ref("");
@@ -137,7 +136,6 @@ async function loadDeviceForBranch() {
   shiftStatus.value = null;
   lastCheck.value = null;
   lastCheckError.value = "";
-  paymentCheckResult.value = null;
   receiptPrintData.value = null;
   receiptDetails.value = null;
   receiptDetailsError.value = "";
@@ -563,7 +561,6 @@ async function issuePaymentCheck(payment) {
       signedPayloadBase64,
       rroSignatureBase64,
     });
-    paymentCheckResult.value = submitted;
 
     if (submitted.status === "FISCALIZED") {
       await loadFiscalDocuments(true);
@@ -1425,7 +1422,7 @@ function createReceiptImageBlob(data) {
 
     const canvas = document.createElement("canvas");
     canvas.width = width;
-    canvas.height = Math.ceil(y + 32);
+    canvas.height = Math.ceil(y + (data.qrCodeDataUrl ? 190 : 0) + 32);
     const context = canvas.getContext("2d");
     if (!context) {
       reject(new Error("Не вдалося створити зображення чека."));
@@ -1458,10 +1455,27 @@ function createReceiptImageBlob(data) {
       }
     }
 
-    canvas.toBlob(blob => {
+    const finish = () => canvas.toBlob(blob => {
       if (blob) resolve(blob);
       else reject(new Error("Браузер не зміг сформувати PNG-зображення чека."));
     }, "image/png");
+
+    if (data.qrCodeDataUrl) {
+      const qrImage = new Image();
+      qrImage.onload = () => {
+        const qrSize = 160;
+        context.drawImage(qrImage, (width - qrSize) / 2, y + 10, qrSize, qrSize);
+        context.font = "14px Arial";
+        context.fillStyle = "#111111";
+        context.textAlign = "center";
+        context.fillText("Перевірити чек у СОД РРО", width / 2, y + qrSize + 18);
+        finish();
+      };
+      qrImage.onerror = () => reject(new Error("Не вдалося додати QR-код до зображення чека."));
+      qrImage.src = data.qrCodeDataUrl;
+    } else {
+      finish();
+    }
   });
 }
 
@@ -2333,4 +2347,6 @@ button:disabled { opacity:.48; cursor:not-allowed; }
 @media(max-width:600px) { .page-header,.overview-main { flex-direction:column; }.branch-picker { width:100%; }.shift-state { align-self:flex-start; }.primary-actions,.diagnostic-actions { display:grid; grid-template-columns:1fr; }.primary-actions button,.diagnostic-actions button { width:100%; }.status-summary { grid-template-columns:1fr 1fr; }.iit-widget-overlay { padding:0; }.iit-widget-dialog { width:100%; height:100dvh; border-radius:0; } }
 
 .fiscal-document-archive{display:grid;gap:14px}.fiscal-document-filters{display:grid;grid-template-columns:repeat(2,minmax(130px,170px)) minmax(200px,1fr) auto;align-items:end;gap:10px}.fiscal-document-filters label{display:grid;gap:5px;font-size:13px;color:#617580}.fiscal-document-filters input{min-width:0;width:100%}.fiscal-document-list{display:grid;gap:0}.fiscal-document-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-top:1px solid #e7edf0}.fiscal-document-copy{display:grid;gap:4px;min-width:0}.fiscal-document-copy span,.fiscal-document-copy small{font-size:13px;color:#617580;overflow-wrap:anywhere}.fiscal-document-copy .fiscal-document-missing{color:#9b4d25}.fiscal-document-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#617580;font-size:13px}.fiscal-document-selected{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px solid #dce4e9;border-radius:8px;background:#f7fafb}.fiscal-document-selected>div:first-child{display:grid;gap:4px}.fiscal-document-selected small{color:#617580}.fiscal-document-selected-actions{display:flex;gap:8px;flex-wrap:wrap}.fiscal-document-archive .feedback{margin:0}@media(max-width:760px){.fiscal-document-filters{grid-template-columns:1fr 1fr}.fiscal-document-search{grid-column:1/-1}.fiscal-document-filters>button{grid-column:1/-1}.fiscal-document-row,.fiscal-document-selected{align-items:stretch;flex-direction:column}.fiscal-document-selected-actions{justify-content:flex-start}}
+.print-receipt__qr{display:grid;justify-items:center;gap:6px;padding:10px 0}.print-receipt__qr img{width:160px;height:160px;object-fit:contain}.print-receipt__qr small{font-size:11px;color:#344054;text-align:center}
+.fiscal-document-archive{padding:14px;gap:12px}.fiscal-document-archive .section-heading{align-items:center}.fiscal-document-list{display:grid;gap:6px}.fiscal-document-row{padding:9px 12px;gap:8px;border-radius:8px}.fiscal-document-copy{gap:3px}.fiscal-document-copy strong{font-size:13px}.fiscal-document-copy span,.fiscal-document-copy small{font-size:11px}.fiscal-document-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.fiscal-document-pagination__actions{display:flex;gap:8px}.fiscal-document-pagination button{min-height:34px;padding:7px 11px;font-size:12px}
 </style>
