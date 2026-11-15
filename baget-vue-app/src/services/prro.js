@@ -194,3 +194,10 @@ export function getPrroFiscalDocument(token, documentId) {
 export function getPrroReceiptDetails(token, branchNo) {
   return adminRequest(token, `/api/prro/receipt-details/${Number(branchNo)}`);
 }
+
+export function getPrroReceiptQr(token, branchNo, request) {
+  return adminRequest(token, `/api/prro/receipt-details/${Number(branchNo)}/qr`, {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
