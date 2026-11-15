@@ -402,6 +402,22 @@ function fiscalDocumentSourceLabel(document) {
   return document.sourceType || "Операція Baget";
 }
 
+async function attachReceiptQr(data, branch) {
+  if (data.isTestDocument) return data;
+  try {
+    const qr = await getPrroReceiptQr(props.session.token, branch, {
+      fiscalNumber: data.fiscalNumber,
+      receiptNumber: data.receiptNumber,
+      dateTime: data.dateTime,
+      totalMinor: data.totalMinor,
+      mac: data.mac || null,
+    });
+    return { ...data, verificationUrl: qr.verificationUrl, qrCodeDataUrl: qr.imageDataUrl };
+  } catch (e) {
+    return { ...data, qrCodeError: e.message || "Не вдалося сформувати QR-код перевірки чека." };
+  }
+}
+
 async function openArchivedDocument(document) {
   if (openingFiscalDocumentId.value || !document) return;
   if (!["CHK", "ZREPORT"].includes(document.documentType)) {
@@ -436,7 +452,7 @@ async function openArchivedDocument(document) {
       if (!receiptDetails.value) {
         throw new Error(receiptDetailsError.value || "Не завантажено реквізити суб'єкта господарювання та філії.");
       }
-      receiptPrintData.value = {
+      const archivedReceipt = {
         ...dpsReceipt,
         ...receiptDetails.value,
         branchName: archived.branchName,
@@ -446,6 +462,7 @@ async function openArchivedDocument(document) {
         isTestDocument: archived.endpointMode === "TEST",
         archiveId: archived.id,
       };
+      receiptPrintData.value = await attachReceiptQr(archivedReceipt, archived.branchNo);
       receiptPrintError.value = "";
       message.value = "Оригінальний чек завантажено з архіву ДПС. Тепер його можна повторно роздрукувати або надіслати.";
     } else {
@@ -453,8 +470,12 @@ async function openArchivedDocument(document) {
       if (dpsReport.fiscalNumber !== archived.fiscalNumber) {
         throw new Error("Фіскальний номер у Z-звіті не збігається з архівним записом.");
       }
+      if (!receiptDetails.value) {
+        throw new Error(receiptDetailsError.value || "Не завантажено реквізити суб'єкта господарювання та філії.");
+      }
       zReportPrintData.value = {
         ...dpsReport,
+        ...receiptDetails.value,
         branchName: archived.branchName,
         deviceName: archived.deviceName,
         fiscalDocumentId: archived.fiscalDocumentId,
@@ -569,7 +590,7 @@ async function issuePaymentCheck(payment) {
         if (!receiptDetails.value) {
           throw new Error(receiptDetailsError.value || "Не завантажено реквізити суб'єкта господарювання та філії.");
         }
-        receiptPrintData.value = {
+        const paymentReceipt = {
           ...dpsReceipt,
           ...receiptDetails.value,
           branchName: selectedBranchName.value,
@@ -578,6 +599,7 @@ async function issuePaymentCheck(payment) {
           responseCode: submitted.responseCode,
           isTestDocument: isTestEndpoint.value,
         };
+        receiptPrintData.value = await attachReceiptQr(paymentReceipt, Number(selectedBranch));
         receiptPrintError.value = "";
         message.value = refreshed.status.state === "OPEN"
           ? (isTestEndpoint.value
@@ -1153,6 +1175,8 @@ function parseDpsReceipt(dataSignBase64) {
   if (totalMinor === null) {
     throw new Error("У документі lastChk відсутня підсумкова сума.");
   }
+  const mac = closing.getAttribute("MAC") || check.getAttribute("MAC")
+    || packet.getAttribute("MAC") || document.getElementsByTagName("MAC")[0]?.textContent?.trim() || "";
 
   return {
     fiscalNumber,
@@ -1163,6 +1187,8 @@ function parseDpsReceipt(dataSignBase64) {
     items,
     payments,
     total: formatDpsMoney(totalMinor),
+    totalMinor: String(totalMinor),
+    mac,
     source: "lastChk.data_sign",
   };
 }
@@ -2103,6 +2129,10 @@ onBeforeUnmount(() => {
         <strong>{{ receiptPrintData.total }}</strong>
       </div>
       <div class="print-receipt__separator"></div>
+      <div v-if="receiptPrintData.qrCodeDataUrl" class="print-receipt__qr">
+        <img :src="receiptPrintData.qrCodeDataUrl" alt="QR-код перевірки фіскального чека">
+        <small>Перевірити чек у СОД РРО</small>
+      </div>
       <div class="print-receipt__warning">
         {{ receiptPrintData.isTestDocument ? "НЕ Є ФІСКАЛЬНИМ ЧЕКОМ" : "ФІСКАЛЬНИЙ ЧЕК" }}
       </div>
@@ -2110,7 +2140,7 @@ onBeforeUnmount(() => {
 
     <section v-if="zReportPrintData" class="print-receipt print-zreport" aria-hidden="true">
       <header class="print-receipt__header">
-        <strong class="print-receipt__brand">БАГЕТ</strong>
+        <div class="print-receipt__brand">{{ zReportPrintData.companyName }}</div>
         <div class="print-receipt__title">Z-ЗВІТ · КОПІЯ</div>
         <div v-if="zReportPrintData.isTestDocument" class="print-receipt__warning">
           ТЕСТОВИЙ ДОКУМЕНТ<br />НЕ Є ФІСКАЛЬНИМ Z-ЗВІТОМ
@@ -2119,11 +2149,10 @@ onBeforeUnmount(() => {
       </header>
 
       <div class="print-receipt__meta">
+        <div>{{ zReportPrintData.taxIdLabel }}: {{ zReportPrintData.taxId }}</div>
         <div>{{ zReportPrintData.branchName }}</div>
-        <div>{{ zReportPrintData.deviceName }}</div>
+        <div>{{ zReportPrintData.branchAddress }}</div>
         <div>ФН ПРРО: {{ zReportPrintData.fiscalNumber }}</div>
-        <div v-if="zReportPrintData.taxpayerNumber">ЄДРПОУ / РНОКПП: {{ zReportPrintData.taxpayerNumber }}</div>
-        <div v-if="zReportPrintData.serialNumber">Заводський номер: {{ zReportPrintData.serialNumber }}</div>
         <div>Номер Z-звіту: {{ zReportPrintData.reportNumber }}</div>
         <div>Дата і час: {{ formatDpsDateTime(zReportPrintData.dateTime) }}</div>
       </div>
