@@ -478,7 +478,7 @@ async function issuePaymentCheck(payment) {
   error.value = "";
   message.value = "";
   paymentCheckError.value = "";
-  testCheckResult.value = null;
+  paymentCheckResult.value = null;
   receiptPrintData.value = null;
   zReportPrintData.value = null;
   receiptPrintError.value = "";
@@ -1783,90 +1783,6 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section class="prro-panel fiscal-document-archive" aria-labelledby="fiscal-document-archive-title">
-      <div class="section-heading">
-        <div>
-          <h3 id="fiscal-document-archive-title">Архів фіскальних документів</h3>
-          <p>Оригінальні відповіді ДПС, збережені під час фіскалізації. Чеки та Z-звіти можна повторно відкрити й надрукувати.</p>
-        </div>
-        <button type="button" class="button-secondary"
-          :disabled="fiscalDocumentsLoading || !branchNo" @click="loadFiscalDocuments(true)">
-          {{ fiscalDocumentsLoading ? "Завантаження…" : "Оновити архів" }}
-        </button>
-      </div>
-
-      <div class="fiscal-document-filters">
-        <label>З дати
-          <input v-model="fiscalDocumentFrom" type="date">
-        </label>
-        <label>До дати
-          <input v-model="fiscalDocumentTo" type="date">
-        </label>
-        <label class="fiscal-document-search">Пошук
-          <input v-model.trim="fiscalDocumentQuery" type="search"
-            placeholder="Фіскальний ID, номер чека, ФН або джерело"
-            @keyup.enter="loadFiscalDocuments(true)">
-        </label>
-        <button type="button" class="button-primary"
-          :disabled="fiscalDocumentsLoading || !branchNo"
-          @click="loadFiscalDocuments(true)">
-          Знайти
-        </button>
-      </div>
-
-      <p v-if="fiscalDocumentsError" class="feedback feedback-error" role="alert">{{ fiscalDocumentsError }}</p>
-      <p v-if="!fiscalDocuments.length && !fiscalDocumentsLoading && !fiscalDocumentsError" class="help-text">
-        За вибраний період фіскальних документів не знайдено.
-      </p>
-
-      <div v-if="fiscalDocuments.length" class="fiscal-document-list">
-        <article v-for="document in fiscalDocuments" :key="document.id" class="fiscal-document-row">
-          <div class="fiscal-document-copy">
-            <strong>{{ document.documentType === 'ZREPORT' ? 'Z-звіт · локальна операція №' + document.localNumber : fiscalDocumentTypeLabel(document.documentType) + ' №' + document.localNumber }}</strong>
-            <span>{{ document.branchName }} · {{ document.deviceName }} · ФН {{ document.fiscalNumber }}</span>
-            <small>{{ new Date(document.archivedAt).toLocaleString("uk-UA") }} · ID ДПС: {{ document.fiscalDocumentId }}</small>
-            <small>{{ fiscalDocumentSourceLabel(document) }} · {{ document.endpointMode === "TEST" ? "TEST API" : "PRODUCTION API" }}</small>
-            <small v-if="document.archiveStatus !== 'CAPTURED'" class="fiscal-document-missing">
-              Відповідь ДПС не містила data_sign — повторний друк недоступний
-            </small>
-          </div>
-          <button type="button" class="button-secondary"
-            :disabled="openingFiscalDocumentId === document.id || document.archiveStatus !== 'CAPTURED' || !['CHK', 'ZREPORT'].includes(document.documentType)"
-            @click="openArchivedDocument(document)">
-            {{ openingFiscalDocumentId === document.id ? "Відкриваємо…" : document.documentType === 'ZREPORT' ? "Відкрити Z-звіт" : document.documentType === 'CHK' ? "Відкрити чек" : "Перегляд недоступний" }}
-          </button>
-        </article>
-      </div>
-
-      <div class="fiscal-document-pagination">
-        <span>{{ fiscalDocuments.length }} документ(ів) у вибірці</span>
-        <button v-if="fiscalDocumentsHasMore" type="button" class="button-secondary"
-          :disabled="fiscalDocumentsLoading" @click="loadFiscalDocuments(false)">
-          {{ fiscalDocumentsLoading ? "Завантаження…" : "Завантажити ще" }}
-        </button>
-      </div>
-
-      <div v-if="receiptPrintData?.archiveId" class="fiscal-document-selected">
-        <div>
-          <strong>Відкрито чек з архіву №{{ receiptPrintData.receiptNumber }}</strong>
-          <small>ID ДПС: {{ receiptPrintData.fiscalDocumentId }}</small>
-        </div>
-        <div class="fiscal-document-selected-actions">
-          <button type="button" class="button-primary" @click="printReceipt">Роздрукувати</button>
-          <button type="button" class="button-secondary" @click="openReceiptShare">Надіслати копію</button>
-        </div>
-      </div>
-      <div v-if="zReportPrintData?.archiveId" class="fiscal-document-selected">
-        <div>
-          <strong>Відкрито Z-звіт №{{ zReportPrintData.reportNumber }}</strong>
-          <small>ID ДПС: {{ zReportPrintData.fiscalDocumentId }}</small>
-        </div>
-        <div class="fiscal-document-selected-actions">
-          <button type="button" class="button-primary" @click="printZReport">Роздрукувати Z-звіт</button>
-        </div>
-      </div>
-    </section>
-
     <div v-if="shareDialogVisible" class="share-overlay" @click.self="shareDialogVisible = false">
       <section class="share-dialog" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title">
         <button type="button" class="share-close" aria-label="Закрити" @click="shareDialogVisible = false">×</button>
@@ -1954,6 +1870,94 @@ onBeforeUnmount(() => {
             {{ activePaymentRequestKey === payment.paymentRequestKey ? "Виконується…" : payment.operationStatus === "PREPARED" ? "Продовжити підготовку" : "Підготувати чек" }}
           </button>
         </article>
+      </div>
+    </section>
+
+    <section class="prro-panel fiscal-document-archive" aria-labelledby="fiscal-document-archive-title">
+      <div class="section-heading">
+        <div>
+          <h3 id="fiscal-document-archive-title">Архів фіскальних документів</h3>
+          <p>Оригінальні відповіді ДПС, збережені під час фіскалізації. Чеки та Z-звіти можна повторно відкрити й надрукувати.</p>
+        </div>
+        <button type="button" class="button-secondary"
+          :disabled="fiscalDocumentsLoading || !branchNo" @click="loadFiscalDocuments(true)">
+          {{ fiscalDocumentsLoading ? "Завантаження…" : "Оновити архів" }}
+        </button>
+      </div>
+
+      <div class="fiscal-document-filters">
+        <label>З дати
+          <input v-model="fiscalDocumentFrom" type="date">
+        </label>
+        <label>До дати
+          <input v-model="fiscalDocumentTo" type="date">
+        </label>
+        <label class="fiscal-document-search">Пошук
+          <input v-model.trim="fiscalDocumentQuery" type="search"
+            placeholder="Фіскальний ID, номер чека, ФН або джерело"
+            @keyup.enter="loadFiscalDocuments(true)">
+        </label>
+        <button type="button" class="button-primary"
+          :disabled="fiscalDocumentsLoading || !branchNo"
+          @click="loadFiscalDocuments(true)">
+          Знайти
+        </button>
+      </div>
+
+      <p v-if="fiscalDocumentsError" class="feedback feedback-error" role="alert">{{ fiscalDocumentsError }}</p>
+      <p v-if="!fiscalDocuments.length && !fiscalDocumentsLoading && !fiscalDocumentsError" class="help-text">
+        За вибраний період фіскальних документів не знайдено.
+      </p>
+
+      <div v-if="fiscalDocuments.length" class="fiscal-document-list">
+        <article v-for="document in fiscalDocuments" :key="document.id" class="fiscal-document-row">
+          <div class="fiscal-document-copy">
+            <strong>{{ document.documentType === 'ZREPORT' ? 'Z-звіт · локальна операція №' + document.localNumber : fiscalDocumentTypeLabel(document.documentType) + ' №' + document.localNumber }}</strong>
+            <span>{{ document.branchName }} · {{ document.deviceName }} · ФН {{ document.fiscalNumber }}</span>
+            <small>{{ new Date(document.archivedAt).toLocaleString("uk-UA") }} · ID ДПС: {{ document.fiscalDocumentId }}</small>
+            <small>{{ fiscalDocumentSourceLabel(document) }} · {{ document.endpointMode === "TEST" ? "TEST API" : "PRODUCTION API" }}</small>
+            <small v-if="document.archiveStatus !== 'CAPTURED'" class="fiscal-document-missing">
+              Відповідь ДПС не містила data_sign — повторний друк недоступний
+            </small>
+          </div>
+          <button type="button" class="button-secondary"
+            :disabled="openingFiscalDocumentId === document.id || document.archiveStatus !== 'CAPTURED' || !['CHK', 'ZREPORT'].includes(document.documentType)"
+            @click="openArchivedDocument(document)">
+            {{ openingFiscalDocumentId === document.id ? "Відкриваємо…" : document.documentType === 'ZREPORT' ? "Відкрити Z-звіт" : document.documentType === 'CHK' ? "Відкрити чек" : "Перегляд недоступний" }}
+          </button>
+        </article>
+      </div>
+
+      <div class="fiscal-document-pagination">
+        <span>Сторінка {{ fiscalDocumentPage + 1 }} · {{ fiscalDocuments.length }} документ(ів)</span>
+        <div class="fiscal-document-pagination__actions">
+          <button type="button" class="button-secondary"
+            :disabled="fiscalDocumentsLoading || fiscalDocumentPage === 0"
+            @click="loadFiscalDocuments(false, fiscalDocumentPage - 1)">Попередня</button>
+          <button type="button" class="button-secondary"
+            :disabled="fiscalDocumentsLoading || !fiscalDocumentsHasMore"
+            @click="loadFiscalDocuments(false, fiscalDocumentPage + 1)">Наступна</button>
+        </div>
+      </div>
+
+      <div v-if="receiptPrintData?.archiveId" class="fiscal-document-selected">
+        <div>
+          <strong>Відкрито чек з архіву №{{ receiptPrintData.receiptNumber }}</strong>
+          <small>ID ДПС: {{ receiptPrintData.fiscalDocumentId }}</small>
+        </div>
+        <div class="fiscal-document-selected-actions">
+          <button type="button" class="button-primary" @click="printReceipt">Роздрукувати</button>
+          <button type="button" class="button-secondary" @click="openReceiptShare">Надіслати копію</button>
+        </div>
+      </div>
+      <div v-if="zReportPrintData?.archiveId" class="fiscal-document-selected">
+        <div>
+          <strong>Відкрито Z-звіт №{{ zReportPrintData.reportNumber }}</strong>
+          <small>ID ДПС: {{ zReportPrintData.fiscalDocumentId }}</small>
+        </div>
+        <div class="fiscal-document-selected-actions">
+          <button type="button" class="button-primary" @click="printZReport">Роздрукувати Z-звіт</button>
+        </div>
       </div>
     </section>
 
