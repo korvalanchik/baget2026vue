@@ -1877,6 +1877,9 @@ onBeforeUnmount(() => {
         Ім’я, телефон та адреса покупця не надсилаються. Податкову ознаку позицій задає серверна конфігурація Baget.
       </p>
       <p v-if="paymentCheckError" class="feedback feedback-error" role="alert">{{ paymentCheckError }}</p>
+      <p v-if="receiptPrintData?.qrCodeError" class="feedback feedback-error" role="alert">
+        Чек підтверджено ДПС, але QR-код перевірки не сформовано: {{ receiptPrintData.qrCodeError }}
+      </p>
       <p v-if="!recentPayments.length && !paymentCheckError" class="help-text">
         Немає доступних підтверджених надходжень із новими коштами для цієї філії.
       </p>
