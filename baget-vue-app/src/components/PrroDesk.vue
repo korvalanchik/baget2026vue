@@ -408,7 +408,9 @@ async function attachReceiptQr(data, branch) {
       receiptNumber: data.receiptNumber,
       dateTime: data.dateTime,
       totalMinor: data.totalMinor,
-      mac: data.mac || null,
+      // This Baget workflow submits checks online. DPS requires the MAC query
+      // parameter only for checks created in PRRO offline mode.
+      mac: null,
     });
     return { ...data, verificationUrl: qr.verificationUrl, qrCodeDataUrl: qr.imageDataUrl };
   } catch (e) {
@@ -1171,9 +1173,6 @@ function parseDpsReceipt(dataSignBase64) {
   if (totalMinor === null) {
     throw new Error("У документі lastChk відсутня підсумкова сума.");
   }
-  const mac = closing.getAttribute("MAC") || check.getAttribute("MAC")
-    || packet.getAttribute("MAC") || document.getElementsByTagName("MAC")[0]?.textContent?.trim() || "";
-
   return {
     fiscalNumber,
     receiptNumber,
@@ -1184,7 +1183,6 @@ function parseDpsReceipt(dataSignBase64) {
     payments,
     total: formatDpsMoney(totalMinor),
     totalMinor: String(totalMinor),
-    mac,
     source: "lastChk.data_sign",
   };
 }
