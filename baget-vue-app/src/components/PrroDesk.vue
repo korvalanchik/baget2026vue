@@ -497,7 +497,6 @@ async function issuePaymentCheck(payment) {
   error.value = "";
   message.value = "";
   paymentCheckError.value = "";
-  paymentCheckResult.value = null;
   receiptPrintData.value = null;
   zReportPrintData.value = null;
   receiptPrintError.value = "";
