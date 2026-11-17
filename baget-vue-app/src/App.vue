@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch, watchEffect } from "vue";
 import TaskHome from "./components/TaskHome.vue";
 import CashDesk from "./components/CashDesk.vue";
 import FinanceDesk from "./components/FinanceDesk.vue";
@@ -74,6 +74,8 @@ const activeSection = ref(
     ? "samples"
     : session.value?.roles?.some(role => ["ROLE_CASHIER", "ROLE_SENIOR_CASHIER"].includes(role)) ? "prro" : scannedProduct ? "scanning" : "home",
 );
+const prroMounted = ref(activeSection.value === "prro");
+watch(activeSection, section => { if (section === "prro") prroMounted.value = true; });
 const navigation = [
   { id: "home", icon: "⌂", label: "Мої завдання" },
   {
@@ -197,12 +199,12 @@ function signOut() {
           </button>
         </div>
       </header>
+      <div v-if="prroMounted && (canAccess(session, 'prro:operate') || canAcceptCustomerPayment(session))" v-show="activeSection === 'prro'"><DeskLayout title="Каса / ПРРО" description="Відкриття зміни, фіскалізація чеків та закриття касової зміни."><PrroDesk :session="session" /></DeskLayout></div>
       <TaskHome v-if="activeSection === 'home'" :session="session" @navigate="taskNavigate" />
       <section v-else-if="activeSection === 'new-order' && canAccess(session, 'orders:create')">
         <EstimateCalculator :session="session" />
       </section>
       <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
-      <DeskLayout v-else-if="activeSection === 'prro' && (canAccess(session, 'prro:operate') || canAcceptCustomerPayment(session))" title="Каса / ПРРО" description="Відкриття зміни, фіскалізація чеків та закриття касової зміни."><PrroDesk :session="session" /></DeskLayout>
       <FrameSamplesDesk v-else-if="activeSection === 'samples' && canAccess(session, 'samples:read')" :session="session" />
       <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" :initial-tab="taskContext?.tab" :initial-order-no="taskContext?.orderNo" />
       <DeskLayout v-else-if="activeSection === 'cash' && canAcceptCustomerPayment(session)" title="Каси та рахунки" description="Щоденна робота з коштами філій та центральної каси."><CashDesk :session="session" @open-purchase="taskNavigate({ section: 'finance', tab: 'purchases', receiptId: $event })" /></DeskLayout>
@@ -217,7 +219,7 @@ function signOut() {
         <CrmQrIssueDesk v-if="canAcceptCustomerPayment(session) && !scanTracking" :session="session" :initial-token="scannedProduct" @busy="scanBusy = $event" />
         <template v-else><h1>Сканування виробу</h1><ProductTracking :session="session" :initial-token="scannedProduct" /></template>
       </section>
-      <section v-else class="placeholder-page">
+      <section v-else-if="!(activeSection === 'prro' && (canAccess(session, 'prro:operate') || canAcceptCustomerPayment(session)))" class="placeholder-page">
         <p>
           Розділ «{{
             navigation.find((item) => item.id === activeSection)?.label
