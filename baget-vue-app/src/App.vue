@@ -197,12 +197,12 @@ function signOut() {
           </button>
         </div>
       </header>
+      <div v-if="canAccess(session, 'prro:operate') || canAcceptCustomerPayment(session)" v-show="activeSection === 'prro'"><DeskLayout title="Каса / ПРРО" description="Відкриття зміни, фіскалізація чеків та закриття касової зміни."><PrroDesk :session="session" /></DeskLayout></div>
       <TaskHome v-if="activeSection === 'home'" :session="session" @navigate="taskNavigate" />
       <section v-else-if="activeSection === 'new-order' && canAccess(session, 'orders:create')">
         <EstimateCalculator :session="session" />
       </section>
       <SettingsDesk v-else-if="activeSection === 'settings' && isAdmin" :session="session" />
-      <div v-if="canAccess(session, 'prro:operate') || canAcceptCustomerPayment(session)" v-show="activeSection === 'prro'"><DeskLayout title="Каса / ПРРО" description="Відкриття зміни, фіскалізація чеків та закриття касової зміни."><PrroDesk :session="session" /></DeskLayout></div>
       <FrameSamplesDesk v-else-if="activeSection === 'samples' && canAccess(session, 'samples:read')" :session="session" />
       <BranchOrdersDesk v-else-if="activeSection === 'orders' && canAccess(session, 'orders:read')" :session="session" :initial-tab="taskContext?.tab" :initial-order-no="taskContext?.orderNo" />
       <DeskLayout v-else-if="activeSection === 'cash' && canAcceptCustomerPayment(session)" title="Каси та рахунки" description="Щоденна робота з коштами філій та центральної каси."><CashDesk :session="session" @open-purchase="taskNavigate({ section: 'finance', tab: 'purchases', receiptId: $event })" /></DeskLayout>
