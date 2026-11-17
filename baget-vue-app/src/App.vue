@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onBeforeUnmount, ref, watchEffect } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch, watchEffect } from "vue";
 import TaskHome from "./components/TaskHome.vue";
 import CashDesk from "./components/CashDesk.vue";
 import FinanceDesk from "./components/FinanceDesk.vue";
@@ -74,6 +74,8 @@ const activeSection = ref(
     ? "samples"
     : session.value?.roles?.some(role => ["ROLE_CASHIER", "ROLE_SENIOR_CASHIER"].includes(role)) ? "prro" : scannedProduct ? "scanning" : "home",
 );
+const prroMounted = ref(activeSection.value === "prro");
+watch(activeSection, section => { if (section === "prro") prroMounted.value = true; });
 const navigation = [
   { id: "home", icon: "⌂", label: "Мої завдання" },
   {
@@ -197,7 +199,7 @@ function signOut() {
           </button>
         </div>
       </header>
-      <div v-if="canAccess(session, 'prro:operate') || canAcceptCustomerPayment(session)" v-show="activeSection === 'prro'"><DeskLayout title="Каса / ПРРО" description="Відкриття зміни, фіскалізація чеків та закриття касової зміни."><PrroDesk :session="session" /></DeskLayout></div>
+      <div v-if="prroMounted && (canAccess(session, 'prro:operate') || canAcceptCustomerPayment(session))" v-show="activeSection === 'prro'"><DeskLayout title="Каса / ПРРО" description="Відкриття зміни, фіскалізація чеків та закриття касової зміни."><PrroDesk :session="session" /></DeskLayout></div>
       <TaskHome v-if="activeSection === 'home'" :session="session" @navigate="taskNavigate" />
       <section v-else-if="activeSection === 'new-order' && canAccess(session, 'orders:create')">
         <EstimateCalculator :session="session" />
