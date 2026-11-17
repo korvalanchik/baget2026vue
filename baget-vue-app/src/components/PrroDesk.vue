@@ -401,7 +401,9 @@ function fiscalDocumentSourceLabel(document) {
 }
 
 async function attachReceiptQr(data, branch) {
-  if (data.isTestDocument) return data;
+  // Keep one receipt layout for TEST and PRODUCTION. TEST documents are not
+  // fiscal and will not be found in the public DPS register, but retain the
+  // same QR query structure for end-to-end layout and scanner testing.
   try {
     const qr = await getPrroReceiptQr(props.session.token, branch, {
       fiscalNumber: data.fiscalNumber,
@@ -1465,7 +1467,7 @@ function createReceiptImageBlob(data) {
         context.font = "14px Arial";
         context.fillStyle = "#111111";
         context.textAlign = "center";
-        context.fillText("Перевірити чек у СОД РРО", width / 2, y + qrSize + 18);
+        context.fillText(data.isTestDocument ? "ТЕСТОВИЙ ДОКУМЕНТ · НЕ ФІСКАЛЬНИЙ" : "Перевірити чек у СОД РРО", width / 2, y + qrSize + 18);
         finish();
       };
       qrImage.onerror = () => reject(new Error("Не вдалося додати QR-код до зображення чека."));
@@ -2144,7 +2146,7 @@ onBeforeUnmount(() => {
       <div class="print-receipt__separator"></div>
       <div v-if="receiptPrintData.qrCodeDataUrl" class="print-receipt__qr">
         <img :src="receiptPrintData.qrCodeDataUrl" alt="QR-код перевірки фіскального чека">
-        <small>Перевірити чек у СОД РРО</small>
+        <small>{{ receiptPrintData.isTestDocument ? "Тестовий QR-код · документ не є фіскальним" : "Перевірити чек у СОД РРО" }}</small>
       </div>
       <div class="print-receipt__warning">
         {{ receiptPrintData.isTestDocument ? "НЕ Є ФІСКАЛЬНИМ ЧЕКОМ" : "ФІСКАЛЬНИЙ ЧЕК" }}
