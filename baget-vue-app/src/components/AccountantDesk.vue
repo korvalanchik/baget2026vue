@@ -21,7 +21,8 @@ function restorePayment() {
   const stored = JSON.parse(sessionStorage.getItem(storageKey) || 'null')
   const normalized = normalizeInvoicePaymentPayload(stored)
   if (normalized) {
-    const { expectedDebt, ...payment } = normalized
+    const payment = { ...normalized }
+    delete payment.expectedDebt
     paymentRetry = {
       ...payment,
       branchNo: payment.branchNo ?? Number(detail.value.branchNo),
