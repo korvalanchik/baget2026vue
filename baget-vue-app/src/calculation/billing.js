@@ -7,3 +7,11 @@ export function paymentAmounts(amount, allocation, debt, available) {
   throw new Error('Сума перевищує залишок цього рахунку. Окремий аванс оформлюється у фінансах клієнта.')
  return { cash, allocated: advance }
 }
+
+// Older pending requests stored in sessionStorage may predate the required
+// allocationAmount field. A cash-only payment has no advance allocation.
+export function normalizeInvoicePaymentPayload(payload) {
+ if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload
+ if (payload.allocationAmount != null) return payload
+ return { ...payload, allocationAmount: 0 }
+}
