@@ -6,6 +6,7 @@ import { newRequestKey } from '../services/requestKey.js'
 import { computed, onMounted, ref } from 'vue'
 import { paymentAmounts, normalizeInvoicePaymentPayload } from '../calculation/billing.js'
 import { productInvoices, productInvoicePdf } from '../services/productInvoices.js'
+import { customerPayments } from '../services/customerPayments.js'
 const props = defineProps({ session: { type: Object, required: true }, initialTab: { type: String, default: 'ready' } })
 const tab = ref(['ready', 'invoices', 'receivables', 'reconciliation'].includes(props.initialTab) ? props.initialTab : 'ready'), ready = ref([]), invoices = ref([]), page = ref(0), picked = ref([]), chosenInvoices = ref([])
 const busy = ref(false), error = ref(''), message = ref(''), detail = ref(null), options = ref({ branches: [], payers: [], partners: [] })
@@ -18,8 +19,19 @@ function restorePayment() {
  const storageKey = paymentKey()
  try {
   const stored = JSON.parse(sessionStorage.getItem(storageKey) || 'null')
-  paymentRetry = normalizeInvoicePaymentPayload(stored)
-  if (paymentRetry && paymentRetry !== stored) sessionStorage.setItem(storageKey, JSON.stringify(paymentRetry))
+  const normalized = normalizeInvoicePaymentPayload(stored)
+  if (normalized) {
+    const payment = { ...normalized }
+    delete payment.expectedDebt
+    paymentRetry = {
+      ...payment,
+      branchNo: payment.branchNo ?? Number(detail.value.branchNo),
+      invoiceId: payment.invoiceId ?? Number(detail.value.id)
+    }
+    sessionStorage.setItem(storageKey, JSON.stringify(paymentRetry))
+  } else {
+    paymentRetry = null
+  }
  } catch {
   sessionStorage.removeItem(storageKey)
   paymentRetry = null
@@ -79,12 +91,22 @@ function payment() { return run(async () => {
     if (cash > 0 && !cashAccount.value) throw new Error('Оберіть касу або рахунок для надходження')
     if (cash > 0 && cashAccountKind.value === 'BANK' && !paymentInstrument.value) throw new Error('Для банківського рахунку оберіть фактичний засіб оплати')
     if (!window.confirm(`Підтвердити оплату ${money(cash)} грн і зарахування авансу ${money(allocated)} грн?`)) return
-    const payload = { cashAccountId: cash > 0 ? cashAccount.value : null, paymentInstrument: cash > 0 && cashAccountKind.value === 'BANK' ? paymentInstrument.value : null, amount: cash, allocationAmount: allocated, expectedDebt: detail.value.debt, note: note.value, requestKey: newRequestKey() }
+    const payload = {
+      branchNo: Number(detail.value.branchNo),
+      invoiceId: Number(detail.value.id),
+      amount: cash,
+      allocationAmount: allocated,
+      cashAccountId: cash > 0 ? cashAccount.value : null,
+      paymentInstrument: cash > 0 && cashAccountKind.value === 'BANK' ? paymentInstrument.value : null,
+      note: note.value,
+      requestKey: newRequestKey()
+    }
     sessionStorage.setItem(paymentKey(), JSON.stringify(payload)); paymentRetry = payload
   }
   paymentPending.value = true
   try {
-    detail.value = await productInvoices(props.session.token, `/${detail.value.id}/payment`, paymentRetry)
+    await customerPayments(props.session.token, `/${detail.value.payerId}`, paymentRetry)
+    detail.value = await productInvoices(props.session.token, `/${detail.value.id}`)
     sessionStorage.removeItem(paymentKey()); paymentRetry = null; paymentPending.value = false; amount.value = ''; advance.value = ''; cashAccount.value = null; cashAccountKind.value = null; paymentInstrument.value = ''; message.value = 'Операцію проведено.'; await load()
   } catch (e) {
     if ([400, 403, 404, 409, 422].includes(e.status)) { sessionStorage.removeItem(paymentKey()); paymentRetry = null; paymentPending.value = false }
