@@ -4,7 +4,7 @@ import PartnerReceivables from './PartnerReceivables.vue'
 import PartnerReconciliation from './PartnerReconciliation.vue'
 import { newRequestKey } from '../services/requestKey.js'
 import { computed, onMounted, ref } from 'vue'
-import { paymentAmounts } from '../calculation/billing.js'
+import { paymentAmounts, normalizeInvoicePaymentPayload } from '../calculation/billing.js'
 import { productInvoices, productInvoicePdf } from '../services/productInvoices.js'
 const props = defineProps({ session: { type: Object, required: true }, initialTab: { type: String, default: 'ready' } })
 const tab = ref(['ready', 'invoices', 'receivables', 'reconciliation'].includes(props.initialTab) ? props.initialTab : 'ready'), ready = ref([]), invoices = ref([]), page = ref(0), picked = ref([]), chosenInvoices = ref([])
@@ -15,7 +15,16 @@ const payerSearch = ref(''), payer = ref(null), branch = ref(''), note = ref('')
 let retry = null, paymentRetry = null
 const paymentKey = () => `baget.invoice-payment.${props.session.username || props.session.nickname || 'session'}.${detail.value?.id}`
 function restorePayment() {
- paymentRetry = JSON.parse(sessionStorage.getItem(paymentKey()) || 'null'); paymentPending.value = !!paymentRetry
+ const storageKey = paymentKey()
+ try {
+  const stored = JSON.parse(sessionStorage.getItem(storageKey) || 'null')
+  paymentRetry = normalizeInvoicePaymentPayload(stored)
+  if (paymentRetry && paymentRetry !== stored) sessionStorage.setItem(storageKey, JSON.stringify(paymentRetry))
+ } catch {
+  sessionStorage.removeItem(storageKey)
+  paymentRetry = null
+ }
+ paymentPending.value = !!paymentRetry
  amount.value = paymentRetry?.amount ?? ''; advance.value = paymentRetry?.allocationAmount ?? ''; cashAccount.value = null; cashAccountKind.value = null; paymentInstrument.value = paymentRetry?.paymentInstrument ?? ''
 }
 const money = n => Number(n || 0).toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
