@@ -108,6 +108,7 @@ export function buildEstimate(artworks) {
           true,
         ),
         includeMirrorGlue: a.mountingType === "MIRROR_GLUE",
+        mirrorProduct: a.artworkType === "MIRROR",
         framePartNo: a.withFrame
           ? number(
               a.framePartNo,
@@ -160,7 +161,7 @@ export function buildEstimate(artworks) {
             throw new Error("Розмір із паспарту перевищує 100000 мм.");
         }
       }
-      if (a.withFrame || (a.includeBackingHanger && (a.backings.length || a.underframePartNo))) {
+      if (a.withFrame || a.includeBackingHanger) {
         if (a.withFrame && Number(a.framePartNo) === 33190) throw new Error("Для виробу без рами вимкніть «Оформлення в раму».");
         const suspension = {
           hangerMode: a.hangerMode,
