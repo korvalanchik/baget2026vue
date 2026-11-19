@@ -811,10 +811,10 @@ onBeforeUnmount(() => {
           </fieldset>
           <div class="estimate-grid">
             <label class="estimate-check" v-if="!a.withFrame && !a.underframePartNo && a.glass.length && a.backings.some(s => Number(s.partNo) === 4460)"><input v-model="a.antiFrame" type="checkbox" /> Антирама — кліпси (1 на 200 мм периметру, мінімум 4)</label>
-            <label class="estimate-check" v-if="!a.withFrame && (a.backings.length || a.underframePartNo)"><input v-model="a.includeBackingHanger" type="checkbox" /> {{ a.underframePartNo ? 'Додати підвіси / шнурок на підрамник' : 'Додати крокодил на задник' }}</label>
+            <label class="estimate-check" v-if="!a.withFrame"><input v-model="a.includeBackingHanger" type="checkbox" /> {{ a.underframePartNo ? 'Додати підвіси / шнурок на підрамник' : 'Додати підвіси / кріплення' }}</label>
             <label class="estimate-check" v-if="a.withFrame && a.underframePartNo"><input v-model="a.includeUnderframeFasteners" type="checkbox" /> Кріплення підрамника до багета (1 на 400 мм, мінімум 4)</label>
           </div>
-          <fieldset v-if="a.withFrame || (a.includeBackingHanger && (a.backings.length || a.underframePartNo))">
+          <fieldset v-if="a.withFrame || a.includeBackingHanger">
             <legend>Підвіси та кріплення</legend>
             <div class="estimate-grid">
               <label
