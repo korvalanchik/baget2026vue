@@ -3,11 +3,11 @@ export const groups = [
     key: "glass",
     label: "Скло та дзеркало",
     parts: [
-      [12670, "Скло 3 мм"],
       [27540, "Скло 2 мм"],
       [27510, "Антивідблискове скло"],
       [27470, "Акрил 2 мм"],
       [27760, "Дзеркало"],
+      [12670, "Скло 3 мм"],
     ],
   },
   {
@@ -39,6 +39,7 @@ export const artworkTypes = [
   ["BLANK", "Чисте полотно"],
   ["WITH_IMAGE", "Полотно із зображенням"],
   ["PRINT", "Принт"],
+  ["MIRROR", "Дзеркало"],
 ];
 export const hangers = [
   [27580, "Крокодил 01"],
@@ -106,6 +107,7 @@ export function buildEstimate(artworks) {
           10000,
           true,
         ),
+        includeMirrorGlue: a.mountingType === "MIRROR_GLUE",
         framePartNo: a.withFrame
           ? number(
               a.framePartNo,
@@ -198,7 +200,6 @@ export function buildEstimate(artworks) {
         if (a.cordMode !== "AUTO")
           suspension.includeCord = a.cordMode === "YES";
         if (!a.withFrame && !a.underframePartNo) {
-          if (suspension.hangerMode === 'MANUAL' && ![27580,14450].includes(suspension.hangerPartNo)) throw new Error('Без рами оберіть підвіс крокодил.');
           suspension.includePozzi = false; delete suspension.pozziPerProduct; suspension.includeCord = false;
         }
         product.suspension = suspension;
@@ -207,7 +208,7 @@ export function buildEstimate(artworks) {
         if (a.withFrame || a.underframePartNo || !a.glass.length || !a.backings.some(s => Number(s.partNo) === 4460)) throw new Error('Для антирами потрібні скло/дзеркало та ДВП, без рами й підрамника.');
         product.antiFrame = true;
       }
-      const rows = (a.withFrame || groups.some(g => product[g.key].length))
+      const rows = (a.withFrame || groups.some(g => product[g.key].length) || a.mountingType === "MIRROR_GLUE")
         ? [{ clientItemId: a.id, kind: "PRODUCT", product }]
         : [];
       const size = {
@@ -215,8 +216,12 @@ export function buildEstimate(artworks) {
         heightMm: product.heightMm,
         productQuantity: product.productQuantity,
       };
-      if (!["NONE", "PLANE", "UNDERFRAME"].includes(a.mountingType))
-        throw new Error("Оберіть спосіб натяжки.");
+      if (!["NONE", "PLANE", "UNDERFRAME", "MIRROR_GLUE"].includes(a.mountingType))
+        throw new Error("Оберіть спосіб кріплення.");
+      if (a.mountingType === "MIRROR_GLUE" && a.artworkType !== "MIRROR")
+        throw new Error("Термосклейка доступна лише для виробу «Дзеркало».");
+      if (a.artworkType === "MIRROR" && ["PLANE", "UNDERFRAME"].includes(a.mountingType))
+        throw new Error("Для дзеркала оберіть «Без кріплення» або «Термосклейка».");
       if (
         a.artworkType !== "NONE" &&
         !artworkTypes.some(([type]) => type === a.artworkType)
@@ -237,11 +242,11 @@ export function buildEstimate(artworks) {
       if (underframe && !underframes.some(([id]) => id === underframe))
         throw new Error("Оберіть підрамник зі списку.");
       if (a.mountingType !== "NONE" && a.artworkType === "NONE")
-        throw new Error("Для натяжки оберіть виріб: вишивку, принт або полотно.");
+        throw new Error("Для кріплення оберіть тип виробу.");
       if (a.mountingType === "PLANE" && underframe)
         throw new Error("Для натяжки на площину виберіть «Без підрамника».");
       const canvas =
-        a.artworkType !== "EMBROIDERY" && a.artworkType !== "NONE" && a.canvasSource === "STOCK" ? 27980 : null;
+        a.artworkType !== "EMBROIDERY" && a.artworkType !== "NONE" && a.artworkType !== "MIRROR" && a.canvasSource === "STOCK" ? 27980 : null;
       if(a.artworkType === 'EMBROIDERY' && a.mountingType === 'PLANE' && !a.backings.length)
         throw new Error('Для натяжки вишивки на задник виберіть ДВП або ПВХ у групі «Задник».');
       if(a.withFrame && underframe && a.includeUnderframeFasteners) {
@@ -250,7 +255,6 @@ export function buildEstimate(artworks) {
       }
       const underframeSuspension = !a.withFrame && underframe ? product.suspension : undefined;
       if (underframeSuspension) {
-        if (underframeSuspension.hangerMode === 'MANUAL' && [27580, 14450].includes(underframeSuspension.hangerPartNo)) throw new Error('Для підрамника крокодили не використовуються. Оберіть підвіс 099 або силовий.');
         delete product.suspension;
       }
       if (a.mountingType === "UNDERFRAME") {
