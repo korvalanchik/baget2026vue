@@ -827,7 +827,7 @@ onBeforeUnmount(() => {
               <label v-if="a.hangerMode === 'MANUAL'"
                 >Тип підвісу<select v-model="a.hangerPartNo" required>
                   <option value="" disabled>Оберіть</option>
-                  <option v-for="[id, name] in hangers :key="id" :value="id">
+                  <option v-for="[id, name] in hangers" :key="id" :value="id">
                     {{ name }}
                   </option>
                 </select></label
