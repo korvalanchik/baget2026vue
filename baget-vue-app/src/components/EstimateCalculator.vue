@@ -746,7 +746,7 @@ onBeforeUnmount(() => {
             Зовнішній розмір матеріалів: <strong>{{ outerSize(a) }}</strong>
           </p>
           <fieldset>
-            <legend>Виріб і натяжка</legend>
+            <legend>Виріб і кріплення</legend>
             <div class="estimate-grid">
               <label
                 >Виріб<select v-model="a.artworkType">
@@ -773,20 +773,29 @@ onBeforeUnmount(() => {
                 </select></label
               >
               <label
-                >Спосіб натяжки<select v-model="a.mountingType">
-                  <option value="NONE">Без натяжки</option>
-                  <option value="PLANE">На площину</option>
-                  <option value="UNDERFRAME">На підрамник</option>
+                >Спосіб кріплення<select v-model="a.mountingType">
+                  <option value="NONE">{{ a.artworkType === 'MIRROR' ? "Без кріплення" : "Без натяжки" }}</option>
+                  <template v-if="a.artworkType === 'MIRROR'">
+                    <option value="MIRROR_GLUE">Термосклейка</option>
+                  </template>
+                  <template v-else>
+                    <option value="PLANE">На площину</option>
+                    <option value="UNDERFRAME">На підрамник</option>
+                  </template>
                 </select></label
               >
-              <label v-if="a.artworkType !== 'NONE' && a.artworkType !== 'EMBROIDERY'"
+              <label v-if="a.artworkType !== 'NONE' && a.artworkType !== 'EMBROIDERY' && a.artworkType !== 'MIRROR'"
                 >Матеріал<select v-model="a.canvasSource">
                   <option value="CUSTOMER">Виріб клієнта</option>
                   <option value="STOCK">Полотно майстерні</option>
                 </select></label
               >
+              <p v-if="a.artworkType === 'MIRROR'" class="estimate-muted">
+                Дзеркало може бути матеріалом клієнта. Скло або дзеркало зі списку не додається автоматично;
+                термосклейка нараховується лише після її вибору.
+              </p>
             </div>
-            <details class="field-help"><summary>Як розраховується натяжка</summary><p class="estimate-muted">
+            <details v-if="a.artworkType !== 'MIRROR'" class="field-help"><summary>Як розраховується натяжка</summary><p class="estimate-muted">
               Підрамник і натяжка розраховуються за розміром роботи, без полів
               паспарту. При натяжці на підрамник його вартість враховується один
               раз разом із перемичками.
@@ -806,11 +815,11 @@ onBeforeUnmount(() => {
           </fieldset>
           <div class="estimate-grid">
             <label class="estimate-check" v-if="!a.withFrame && !a.underframePartNo && a.glass.length && a.backings.some(s => Number(s.partNo) === 4460)"><input v-model="a.antiFrame" type="checkbox" /> Антирама — кліпси (1 на 200 мм периметру, мінімум 4)</label>
-            <label class="estimate-check" v-if="!a.withFrame && (a.backings.length || a.underframePartNo)"><input v-model="a.includeBackingHanger" type="checkbox" /> {{ a.underframePartNo ? 'Додати підвіси / шнурок на підрамник' : 'Додати крокодил на задник' }}</label>
+            <label class="estimate-check" v-if="!a.withFrame"><input v-model="a.includeBackingHanger" type="checkbox" /> {{ a.underframePartNo ? 'Додати підвіси / шнурок на підрамник' : 'Додати підвіси / кріплення' }}</label>
             <label class="estimate-check" v-if="a.withFrame && a.underframePartNo"><input v-model="a.includeUnderframeFasteners" type="checkbox" /> Кріплення підрамника до багета (1 на 400 мм, мінімум 4)</label>
           </div>
-          <fieldset v-if="a.withFrame || (a.includeBackingHanger && (a.backings.length || a.underframePartNo))">
-            <legend>Кріплення</legend>
+          <fieldset v-if="a.withFrame || a.includeBackingHanger">
+            <legend>Підвіси та кріплення</legend>
             <div class="estimate-grid">
               <label
                 >Підвіси<select v-model="a.hangerMode">
@@ -822,7 +831,7 @@ onBeforeUnmount(() => {
               <label v-if="a.hangerMode === 'MANUAL'"
                 >Тип підвісу<select v-model="a.hangerPartNo" required>
                   <option value="" disabled>Оберіть</option>
-                  <option v-for="[id, name] in (a.withFrame ? hangers : hangers.filter(([id]) => a.underframePartNo ? [14460,29650].includes(id) : [27580,14450].includes(id)))" :key="id" :value="id">
+                  <option v-for="[id, name] in hangers" :key="id" :value="id">
                     {{ name }}
                   </option>
                 </select></label
