@@ -790,8 +790,12 @@ onBeforeUnmount(() => {
                   <option value="STOCK">Полотно майстерні</option>
                 </select></label
               >
+              <p v-if="a.artworkType === 'MIRROR'" class="estimate-muted">
+                Дзеркало може бути матеріалом клієнта. Скло або дзеркало зі списку не додається автоматично;
+                термосклейка нараховується лише після її вибору.
+              </p>
             </div>
-            <details class="field-help"><summary>Як розраховується натяжка</summary><p class="estimate-muted">
+            <details v-if="a.artworkType !== 'MIRROR'" class="field-help"><summary>Як розраховується натяжка</summary><p class="estimate-muted">
               Підрамник і натяжка розраховуються за розміром роботи, без полів
               паспарту. При натяжці на підрамник його вартість враховується один
               раз разом із перемичками.
