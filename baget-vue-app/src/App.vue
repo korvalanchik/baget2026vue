@@ -143,7 +143,7 @@ function signOut() {
       <button class="mobile-menu-close" type="button" @click="closeMenu" aria-label="Закрити меню">✕ Закрити</button>
       <div class="brand">
         <img class="brand-emblem" src="/brand-emblem.svg" alt="" />
-        <span>Багет<span class="brand-dot">.</span></span>
+        <span>Рамарня<span class="brand-dot">.</span></span>
       </div>
       <button
         v-if="canAccess(session, 'orders:create')"
@@ -181,7 +181,7 @@ function signOut() {
     <main ref="content" class="content" :inert="mobile && menuOpen">
       <header class="topbar">
         <button ref="menuButton" class="mobile-menu-button" type="button" aria-controls="main-navigation" :aria-expanded="menuOpen" @click="openMenu"><span aria-hidden="true">☰</span> Меню</button>
-        <div class="mobile-brand"><img src="/brand-emblem.svg" alt="Багет" /></div>
+        <div class="mobile-brand"><img src="/brand-emblem.svg" alt="Рамарня" /></div>
         <img class="topbar-logo" src="/brand-logo.svg" alt="Рамарня — багетна майстерня" />
         <label class="search"
           ><span>⌕</span
