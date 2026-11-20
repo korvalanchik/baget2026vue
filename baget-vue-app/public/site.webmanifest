@@ -1,0 +1,17 @@
+{
+  "name": "Багет — багетна майстерня",
+  "short_name": "Багет",
+  "lang": "uk",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ead8b8",
+  "theme_color": "#30231d",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
