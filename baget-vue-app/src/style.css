@@ -55,182 +55,40 @@ body,.app-shell{color:var(--ink);background:var(--parchment)}
 @media(max-width:440px){.mobile-brand{width:34px}}
 
 
+
 /* Єдина система кнопок: усі звичайні кнопки мають контраст із полями */
-:root {
-  --button-primary-bg: #963b2c;
-  --button-primary-hover: #7d2d23;
-  --button-primary-border: #7d2d23;
-  --button-primary-text: #fff7eb;
-  --button-secondary-bg: #e8d7ba;
-  --button-secondary-hover: #ddc5a0;
-  --button-secondary-border: #b58a60;
-  --button-secondary-text: #35271e;
-  --button-system-bg: #30231d;
-  --button-system-hover: #493326;
-  --button-system-border: #a16b43;
-  --button-system-text: #f6eddc;
-  --button-danger-bg: #8c3026;
-  --button-danger-hover: #70241e;
-  --button-danger-border: #70241e;
-  --button-disabled-bg: #e6ddce;
-  --button-disabled-border: #d4c6b1;
-  --button-disabled-text: #958671;
+:root{
+ --button-primary-bg:#963b2c;--button-primary-hover:#7d2d23;--button-primary-border:#7d2d23;--button-primary-text:#fff7eb;
+ --button-secondary-bg:#e8d7ba;--button-secondary-hover:#ddc5a0;--button-secondary-border:#b58a60;--button-secondary-text:#35271e;
+ --button-system-bg:#30231d;--button-system-hover:#493326;--button-system-border:#a16b43;--button-system-text:#f6eddc;
+ --button-danger-bg:#8c3026;--button-danger-hover:#70241e;--button-danger-border:#70241e;
+ --button-disabled-bg:#e6ddce;--button-disabled-border:#d4c6b1;--button-disabled-text:#958671;
 }
-button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close) {
-  min-height: 38px !important;
-  padding: 8px 13px !important;
-  border: 1px solid var(--button-secondary-border) !important;
-  border-radius: 6px !important;
-  background: var(--button-secondary-bg) !important;
-  color: var(--button-secondary-text) !important;
-  box-shadow: none !important;
-  font: inherit;
-  font-weight: 650;
-  line-height: 1.25;
-  transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease;
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close){
+ min-height:38px!important;padding:8px 13px!important;border:1px solid var(--button-secondary-border)!important;border-radius:6px!important;
+ background:var(--button-secondary-bg)!important;color:var(--button-secondary-text)!important;box-shadow:none!important;
+ font:inherit;font-weight:650;line-height:1.25;transition:background-color .15s ease,border-color .15s ease,color .15s ease,box-shadow .15s ease;
 }
-button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):not(:disabled):hover {
-  background: var(--button-secondary-hover) !important;
-  border-color: var(--copper) !important;
-  color: var(--ink) !important;
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):not(:disabled):hover{background:var(--button-secondary-hover)!important;border-color:var(--copper)!important;color:var(--ink)!important}
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):is(.primary,.button-primary,.new-order,.submit-order,[class*="primary"],[type="submit"]){
+ background:var(--button-primary-bg)!important;border-color:var(--button-primary-border)!important;color:var(--button-primary-text)!important;
 }
-button.primary,
-button.button-primary,
-button.new-order,
-button.submit-order,
-button[class*="primary"],
-button[type="submit"],
-.login-card button {
-  background: var(--button-primary-bg) !important;
-  border-color: var(--button-primary-border) !important;
-  color: var(--button-primary-text) !important;
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):is(.primary,.button-primary,.new-order,.submit-order,[class*="primary"],[type="submit"]):not(:disabled):hover{
+ background:var(--button-primary-hover)!important;border-color:var(--button-primary-hover)!important;color:var(--button-primary-text)!important;
 }
-button.primary:not(:disabled):hover,
-button.button-primary:not(:disabled):hover,
-button.new-order:not(:disabled):hover,
-button.submit-order:not(:disabled):hover,
-button[class*="primary"]:not(:disabled):hover,
-button[type="submit"]:not(:disabled):hover,
-.login-card button:not(:disabled):hover {
-  background: var(--button-primary-hover) !important;
-  border-color: var(--button-primary-hover) !important;
-  color: var(--button-primary-text) !important;
-}
-button.button-system,
-button.system,
-button[class*="system"] {
-  background: var(--button-system-bg) !important;
-  border-color: var(--button-system-border) !important;
-  color: var(--button-system-text) !important;
-}
-button.button-system:not(:disabled):hover,
-button.system:not(:disabled):hover,
-button[class*="system"]:not(:disabled):hover {
-  background: var(--button-system-hover) !important;
-  color: var(--button-system-text) !important;
-}
-button.button-danger,
-button.danger,
-button.delete-button,
-button[class*="danger"],
-button[class*="delete"] {
-  background: var(--button-danger-bg) !important;
-  border-color: var(--button-danger-border) !important;
-  color: #fff7eb !important;
-}
-button.button-danger:not(:disabled):hover,
-button.danger:not(:disabled):hover,
-button.delete-button:not(:disabled):hover,
-button[class*="danger"]:not(:disabled):hover,
-button[class*="delete"]:not(:disabled):hover {
-  background: var(--button-danger-hover) !important;
-  border-color: var(--button-danger-hover) !important;
-  color: #fff7eb !important;
-}
-button.button-secondary,
-button.secondary,
-button.filter,
-button.table-button,
-button.back-link,
-button.clear-form,
-button[class*="secondary"] {
-  background: var(--button-secondary-bg) !important;
-  border-color: var(--button-secondary-border) !important;
-  color: var(--button-secondary-text) !important;
-}
-button.button-secondary:not(:disabled):hover,
-button.secondary:not(:disabled):hover,
-button.filter:not(:disabled):hover,
-button.table-button:not(:disabled):hover,
-button.back-link:not(:disabled):hover,
-button.clear-form:not(:disabled):hover,
-button[class*="secondary"]:not(:disabled):hover {
-  background: var(--button-secondary-hover) !important;
-  color: var(--button-secondary-text) !important;
-}
-button:disabled,
-button[aria-disabled="true"] {
-  background: var(--button-disabled-bg) !important;
-  border-color: var(--button-disabled-border) !important;
-  color: var(--button-disabled-text) !important;
-  box-shadow: none !important;
-  opacity: 1 !important;
-  cursor: not-allowed !important;
-}
-button:focus-visible {
-  outline: 3px solid rgba(161, 107, 67, .35) !important;
-  outline-offset: 2px;
-}
-button.nav-item {
-  min-height: 43px;
-  border: 0 !important;
-  background: transparent !important;
-  color: #d3c3ac !important;
-}
-button.nav-item:hover,
-button.nav-item.active {
-  background: #4a3529 !important;
-  color: #fff5e3 !important;
-}
-button.icon-button,
-button.account,
-button.help {
-  border: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-button.mobile-menu-button,
-button.mobile-menu-close {
-  background: var(--button-system-bg) !important;
-  border: 1px solid var(--button-system-border) !important;
-  color: var(--button-system-text) !important;
-}
-button.mobile-menu-button:not(:disabled):hover,
-button.mobile-menu-close:not(:disabled):hover {
-  background: var(--button-system-hover) !important;
-}
-button.share-close {
-  background: var(--button-secondary-bg) !important;
-  border: 1px solid var(--button-secondary-border) !important;
-  color: var(--button-secondary-text) !important;
-}
-.option-buttons button.selected,
-.material-tabs button.active {
-  background: var(--button-primary-bg) !important;
-  border-color: var(--button-primary-border) !important;
-  color: var(--button-primary-text) !important;
-}
-.option-buttons button.selected:not(:disabled):hover,
-.material-tabs button.active:not(:disabled):hover {
-  background: var(--button-primary-hover) !important;
-  color: var(--button-primary-text) !important;
-}
-.customer-filters button,
-.tools button,
-.user-tools button,
-.fiscal-document-filters button,
-.fiscal-document-pagination button {
-  background: var(--button-secondary-bg) !important;
-  border-color: var(--button-secondary-border) !important;
-  color: var(--button-secondary-text) !important;
-}
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):is(.button-system,.system,[class*="system"]){background:var(--button-system-bg)!important;border-color:var(--button-system-border)!important;color:var(--button-system-text)!important}
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):is(.button-system,.system,[class*="system"]):not(:disabled):hover{background:var(--button-system-hover)!important;color:var(--button-system-text)!important}
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):is(.button-danger,.danger,.delete-button,[class*="danger"],[class*="delete"]){background:var(--button-danger-bg)!important;border-color:var(--button-danger-border)!important;color:#fff7eb!important}
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):is(.button-danger,.danger,.delete-button,[class*="danger"],[class*="delete"]):not(:disabled):hover{background:var(--button-danger-hover)!important;border-color:var(--button-danger-hover)!important;color:#fff7eb!important}
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):is(.button-secondary,.secondary,.filter,.table-button,.back-link,.clear-form,[class*="secondary"]){background:var(--button-secondary-bg)!important;border-color:var(--button-secondary-border)!important;color:var(--button-secondary-text)!important}
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):is(.button-secondary,.secondary,.filter,.table-button,.back-link,.clear-form,[class*="secondary"]):not(:disabled):hover{background:var(--button-secondary-hover)!important;color:var(--button-secondary-text)!important}
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):disabled,button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close)[aria-disabled="true"]{background:var(--button-disabled-bg)!important;border-color:var(--button-disabled-border)!important;color:var(--button-disabled-text)!important;box-shadow:none!important;opacity:1!important;cursor:not-allowed!important}
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):focus-visible{outline:3px solid rgba(161,107,67,.35)!important;outline-offset:2px}
+button.nav-item{min-height:43px;border:0!important;background:transparent!important;color:#d3c3ac!important}
+button.nav-item:hover,button.nav-item.active{background:#4a3529!important;color:#fff5e3!important}
+button.icon-button,button.account,button.help{border:0!important;background:transparent!important;box-shadow:none!important}
+button.mobile-menu-button,button.mobile-menu-close{background:var(--button-system-bg)!important;border:1px solid var(--button-system-border)!important;color:var(--button-system-text)!important}
+button.mobile-menu-button:not(:disabled):hover,button.mobile-menu-close:not(:disabled):hover{background:var(--button-system-hover)!important}
+button.share-close{background:var(--button-secondary-bg)!important;border:1px solid var(--button-secondary-border)!important;color:var(--button-secondary-text)!important}
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):is(.active,.selected){background:var(--button-primary-bg)!important;border-color:var(--button-primary-border)!important;color:var(--button-primary-text)!important}
+button:not(.nav-item):not(.icon-button):not(.account):not(.help):not(.mobile-menu-button):not(.mobile-menu-close):not(.menu-backdrop):not(.share-close):is(.active,.selected):not(:disabled):hover{background:var(--button-primary-hover)!important;color:var(--button-primary-text)!important}
