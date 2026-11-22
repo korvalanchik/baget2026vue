@@ -183,7 +183,6 @@ onMounted(async () => {
        <div class="counts"><span>У роботі <b>{{ c.workingOrders }}</b></span><span :class="{ ready: Number(c.readyOrders) > 0 }">До видачі <b>{{ c.readyOrders }}</b></span></div>
        <p v-if="c.nextContactDate" class="next-contact" :class="{ attention: contactTiming(c.nextContactDate) !== 'Наступний контакт' }">{{ contactTiming(c.nextContactDate) }} · {{ fmtDate(c.nextContactDate) }}</p>
        <p v-if="c.lastContact" class="last-contact"><span>{{ fmtDate(c.lastContact) }} · {{ outcomes[c.lastOutcome] || c.lastOutcome }}</span><span v-if="c.lastNote" class="note-preview" :title="c.lastNote">{{ c.lastNote }}</span></p>
-       <button class="text-button" :disabled="saving" @click="open(c)">Відкрити картку →</button>
       </article>
      </div>
      <p v-if="!loading && !rows.length" class="empty">Клієнтів за цими умовами немає. Змініть пошук або фільтри.</p>
