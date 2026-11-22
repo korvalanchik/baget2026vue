@@ -5,6 +5,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { customerPayments } from '../services/customerPayments.js'
 import { newRequestKey } from '../services/requestKey.js'
 import { paymentAmounts } from '../calculation/customerPayment.js'
+import { normalizeInvoicePaymentPayload } from '../calculation/billing.js'
 const props = defineProps({ session: { type: Object, required: true }, customerId: { type: Number, default: null }, branchNo: { type: Number, default: null }, orderNo: { type: Number, default: null }, invoiceId: { type: Number, default: null } })
 const emit = defineEmits(['paid', 'busy'])
 const context = ref(null), data = ref(null), busy = ref(false), error = ref(''), notice = ref(''), opened = ref(false)
@@ -22,7 +23,7 @@ async function load() {
   try {
     context.value = props.orderNo ? await customerPayments(props.session.token, `/orders/${props.orderNo}/context`) : { customerId: props.customerId, branchNo: props.branchNo || props.session.branch.id }
     const saved = sessionStorage.getItem(key.value)
-    pending.value = saved ? JSON.parse(saved) : null
+    pending.value = saved ? normalizeInvoicePaymentPayload(JSON.parse(saved)) : null
     await refresh()
   } catch (e) { error.value = e.message } finally { busy.value = false; emit('busy', false) }
   if (!initialPaymentOpened && highlighted.value && !pending.value) { initialPaymentOpened = true; if (Number(highlighted.value.debt) > 0) open(highlighted.value, false) }
