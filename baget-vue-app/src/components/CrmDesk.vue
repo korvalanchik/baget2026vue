@@ -59,12 +59,12 @@ function contactTiming(value) {
  const today = `${part('year')}-${part('month')}-${part('day')}`
  return value < today ? 'Контакт пропущено' : value === today ? 'Зв’язатися сьогодні' : 'Наступний контакт'
 }
-async function openInvoiceDocument(invoiceId, print = false) {
+async function downloadInvoicePdf(invoiceId, invoiceNo) {
  if (invoicePdfBusy.value !== null) return
  invoicePdfBusy.value = invoiceId
  error.value = ''
  try {
-  await productInvoicePdf(props.session.token, invoiceId, print ? { print: true } : { open: true })
+  await productInvoicePdf(props.session.token, invoiceId, { filename: `Invoice-${invoiceNo}.pdf` })
  } catch (e) {
   error.value = e.message
  } finally {
@@ -232,8 +232,7 @@ onMounted(async () => {
        <article v-for="i in detail.invoices.slice(0, 200)" :key="i.id" class="invoice-row">
         <div class="invoice-main"><strong>№ {{ i.invoiceNo }}</strong><p class="muted">{{ invoiceStates[i.status] || i.status }} · {{ invoiceStates[i.lifecycle] || i.lifecycle }}</p></div>
         <div class="invoice-actions">
-         <button :disabled="saving || invoicePdfBusy !== null" @click="openInvoiceDocument(i.id, false)">{{ invoicePdfBusy === i.id ? 'Формуємо PDF…' : 'Переглянути PDF' }}</button>
-         <button :disabled="saving || invoicePdfBusy !== null" @click="openInvoiceDocument(i.id, true)">Друк</button>
+         <button :disabled="saving || invoicePdfBusy !== null" @click="downloadInvoicePdf(i.id, i.invoiceNo)">{{ invoicePdfBusy === i.id ? 'Завантажуємо PDF…' : 'Завантажити PDF' }}</button>
         </div>
        </article>
        <details v-if="financeAllowed"><summary>Умови видачі та кредиту</summary><CustomerCreditPanel :key="`${selected.customerId}-${selected.branchNo}`" :session="session" :customer-id="Number(selected.customerId)" :branch-no="Number(selected.branchNo)" @busy="saving = $event" /></details>
