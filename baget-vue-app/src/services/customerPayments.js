@@ -1,9 +1,13 @@
 import { apiOrigin } from './auth.js'
+import { normalizeInvoicePaymentPayload } from '../calculation/billing.js'
 export async function customerPayments(token, path, payload) {
+  // Last line of defense: every payment POST must satisfy the backend DTO,
+  // including pending requests persisted by older frontend versions.
+  const requestPayload = payload ? normalizeInvoicePaymentPayload(payload) : null
   const response = await fetch(`${apiOrigin}/api/customer-payments${path}`, {
     method: payload ? 'POST' : 'GET',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    ...(payload ? { body: JSON.stringify(payload) } : {}),
+    ...(requestPayload ? { body: JSON.stringify(requestPayload) } : {}),
   })
   if (response.ok) return response.json()
   let message = response.status === 403 ? 'Немає доступу до фінансів цього клієнта чи філії.' : 'Не вдалося виконати операцію. Перевірте дані та повторіть.'
