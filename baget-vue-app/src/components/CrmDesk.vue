@@ -8,7 +8,7 @@ import { newRequestKey } from '../services/requestKey.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import PickupActions from './PickupActions.vue'
 import { crm } from '../services/crm.js'
-import { openCustomerInvoicePdf } from '../services/customerInvoicePdf.js'
+import { productInvoicePdf } from '../services/productInvoices.js'
 import { canAcceptCustomerPayment } from '../services/customerPayments.js'
 import { outcomes, locations, productionStates, orderStates, phoneLink, contactPayload, groupedOrders } from '../calculation/crm.js'
 const props = defineProps({ session: { type: Object, required: true }, initialCustomer: { type: Object, default: null } })
@@ -64,7 +64,7 @@ async function openInvoiceDocument(invoiceId, print = false) {
  invoicePdfBusy.value = invoiceId
  error.value = ''
  try {
-  await openCustomerInvoicePdf(props.session.token, invoiceId, { print })
+  await productInvoicePdf(props.session.token, invoiceId, print ? { print: true } : { open: true })
  } catch (e) {
   error.value = e.message
  } finally {
