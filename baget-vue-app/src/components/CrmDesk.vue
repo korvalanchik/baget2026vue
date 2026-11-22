@@ -18,7 +18,7 @@ const qrOpen = ref(false), qrBusy = ref(false)
 const issueOrder = ref(null), issueLocked = ref(false)
 const branches = ref([]), rows = ref([]), hasMore = ref(false), page = ref(0), historyPage = ref(0)
 const loading = ref(false), saving = ref(false), error = ref(''), notice = ref(''), selected = ref(null), detail = ref(null)
-const filters = reactive({ branch: '', tab: 'WORK', q: '', all: false, due: false })
+const filters = reactive({ branch: '', tab: 'READY', q: '', all: false, due: false })
 const form = reactive({ outcome: 'NOTE', note: '', orderNo: '', invoiceId: '', nextContactDate: '' })
 const formBaseline = ref('')
 const invoicePdfBusy = ref(null)
@@ -46,7 +46,7 @@ function closeIssue() { issueOrder.value = null; issueLocked.value = false }
 const financeAllowed = computed(() => canAcceptCustomerPayment(props.session))
 const contactOutcomes = Object.fromEntries(Object.entries(outcomes).filter(([key]) => key !== 'PARTNER' && !key.startsWith('PICKUP_')))
 const invoiceStates = { DRAFT: 'Чернетка', ISSUED: 'Виставлено', PAID: 'Оплачено', PARTIALLY_PAID: 'Частково оплачено', CANCELLED: 'Скасовано', ACTIVE: 'Діючий', MERGED: 'Об’єднано' }
-const tabs = computed(() => ({ WORK: 'У роботі', READY: 'До видачі', ...(financeAllowed.value ? { SETTLEMENT: 'Розрахунки' } : {}) }))
+const tabs = computed(() => ({ READY: 'До видачі', WORK: 'У роботі', ...(financeAllowed.value ? { SETTLEMENT: 'Розрахунки' } : {}) }))
 const settlementFilter = ref('SETTLEMENT')
 const isSettlement = computed(() => filters.tab === 'SETTLEMENT')
 const yes = value => value === true || Number(value) === 1
