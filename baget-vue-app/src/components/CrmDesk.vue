@@ -218,7 +218,6 @@ onMounted(async () => {
         <OrderHistory :session="session" :order-no="o.orderNo" />
         <div class="order-actions">
          <button v-if="financeAllowed && (o.products.length || (o.pickupOnly && !o.legacy))" class="primary" :disabled="saving || issueLocked" :aria-expanded="issueOrder === o.orderNo" :aria-controls="`issue-order-${o.orderNo}`" @click="toggleIssue(o.orderNo, $event)">{{ issueOrder === o.orderNo ? 'Згорнути видачу / оплату' : 'Видача / оплата' }}</button>
-         <button :disabled="saving || issueLocked" @click="linkContact('orderNo', o.orderNo)">Записати контакт</button>
         </div>
         <div v-if="issueOrder === o.orderNo" :id="`issue-order-${o.orderNo}`" class="inline-issue">
          <CrmIssuePanel :show-history="false" :key="`${selected.customerId}-${selected.branchNo}-${o.orderNo}`" :session="session" :customer="selected" :order-no="Number(o.orderNo)" @busy="saving = $event" @locked="issueLocked = $event" @issued="issued" @close="closeIssue" />
