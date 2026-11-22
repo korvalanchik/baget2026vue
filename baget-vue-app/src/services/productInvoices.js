@@ -10,7 +10,7 @@ export async function productInvoices(token, path = '', body) {
  * Downloads or opens the same product-invoice PDF used by the accounting desk.
  * The endpoint and authenticated Blob download flow are shared by CRM.
  */
-export async function productInvoicePdf(token, id, { open = false, print = false } = {}) {
+export async function productInvoicePdf(token, id, { open = false, print = false, filename = `Invoice-${id}.pdf` } = {}) {
  const tab = (open || print) ? window.open('about:blank', '_blank') : null
  if ((open || print) && !tab) throw new Error('Браузер заблокував нову вкладку. Дозвольте спливаючі вікна для цього сайту й повторіть.')
  try {
@@ -24,7 +24,7 @@ export async function productInvoicePdf(token, id, { open = false, print = false
   if (!open && !print) {
    const link = document.createElement('a')
    link.href = url
-   link.download = `invoice-${id}.pdf`
+   link.download = filename
    document.body.appendChild(link)
    link.click()
    link.remove()
