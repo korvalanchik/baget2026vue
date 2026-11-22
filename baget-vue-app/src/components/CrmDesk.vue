@@ -52,7 +52,6 @@ const isSettlement = computed(() => filters.tab === 'SETTLEMENT')
 const yes = value => value === true || Number(value) === 1
 const cardTabs = { contact: 'Контакт', orders: 'Замовлення й видача', invoices: 'Рахунки', history: 'Історія' }
 const tabHint = computed(() => ({ WORK: 'Клієнти із замовленнями в роботі', READY: 'Клієнти, чиї замовлення очікують видачі', SETTLEMENT: 'Клієнти з боргом або доступним авансом. Кошти посередника позначені як довідкові; суми не змішуються. Фірми-посередники — у бухгалтерському розділі.' })[filters.tab])
-function linkContact(key, value) { form[key] = value; showLinks.value = true; cardTab.value = 'contact' }
 function contactTiming(value) {
  if (!value) return ''
  const parts = new Intl.DateTimeFormat('en', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
@@ -218,7 +217,6 @@ onMounted(async () => {
         <OrderHistory :session="session" :order-no="o.orderNo" />
         <div class="order-actions">
          <button v-if="financeAllowed && (o.products.length || (o.pickupOnly && !o.legacy))" class="primary" :disabled="saving || issueLocked" :aria-expanded="issueOrder === o.orderNo" :aria-controls="`issue-order-${o.orderNo}`" @click="toggleIssue(o.orderNo, $event)">{{ issueOrder === o.orderNo ? 'Згорнути видачу / оплату' : 'Видача / оплата' }}</button>
-         <button :disabled="saving || issueLocked" @click="linkContact('orderNo', o.orderNo)">Записати контакт</button>
         </div>
         <div v-if="issueOrder === o.orderNo" :id="`issue-order-${o.orderNo}`" class="inline-issue">
          <CrmIssuePanel :show-history="false" :key="`${selected.customerId}-${selected.branchNo}-${o.orderNo}`" :session="session" :customer="selected" :order-no="Number(o.orderNo)" @busy="saving = $event" @locked="issueLocked = $event" @issued="issued" @close="closeIssue" />
@@ -236,7 +234,6 @@ onMounted(async () => {
         <div class="invoice-actions">
          <button :disabled="saving || invoicePdfBusy !== null" @click="openInvoiceDocument(i.id, false)">{{ invoicePdfBusy === i.id ? 'Формуємо PDF…' : 'Переглянути PDF' }}</button>
          <button :disabled="saving || invoicePdfBusy !== null" @click="openInvoiceDocument(i.id, true)">Друк</button>
-         <button :disabled="saving || invoicePdfBusy !== null" @click="linkContact('invoiceId', i.id)">Записати контакт</button>
         </div>
        </article>
        <details v-if="financeAllowed"><summary>Умови видачі та кредиту</summary><CustomerCreditPanel :key="`${selected.customerId}-${selected.branchNo}`" :session="session" :customer-id="Number(selected.customerId)" :branch-no="Number(selected.branchNo)" @busy="saving = $event" /></details>
