@@ -52,7 +52,6 @@ const isSettlement = computed(() => filters.tab === 'SETTLEMENT')
 const yes = value => value === true || Number(value) === 1
 const cardTabs = { contact: 'Контакт', orders: 'Замовлення й видача', invoices: 'Рахунки', history: 'Історія' }
 const tabHint = computed(() => ({ WORK: 'Клієнти із замовленнями в роботі', READY: 'Клієнти, чиї замовлення очікують видачі', SETTLEMENT: 'Клієнти з боргом або доступним авансом. Кошти посередника позначені як довідкові; суми не змішуються. Фірми-посередники — у бухгалтерському розділі.' })[filters.tab])
-function linkContact(key, value) { form[key] = value; showLinks.value = true; cardTab.value = 'contact' }
 function contactTiming(value) {
  if (!value) return ''
  const parts = new Intl.DateTimeFormat('en', { timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
