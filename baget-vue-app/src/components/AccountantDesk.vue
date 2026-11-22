@@ -113,7 +113,7 @@ function payment() { return run(async () => {
     throw e
   }
 }) }
-function pdf() { return run(() => productInvoicePdf(props.session.token, detail.value.id)) }
+function pdf() { return run(() => productInvoicePdf(props.session.token, detail.value.id, { filename: `Invoice-${detail.value.invoiceNo}.pdf` })) }
 onMounted(() => run(async () => { options.value = await productInvoices(props.session.token, '/options'); if (options.value.branches.length === 1) branch.value = options.value.branches[0].id; await load() }))
 </script>
 <template>
