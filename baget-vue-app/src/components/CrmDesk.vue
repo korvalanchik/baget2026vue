@@ -236,7 +236,6 @@ onMounted(async () => {
         <div class="invoice-actions">
          <button :disabled="saving || invoicePdfBusy !== null" @click="openInvoiceDocument(i.id, false)">{{ invoicePdfBusy === i.id ? 'Формуємо PDF…' : 'Переглянути PDF' }}</button>
          <button :disabled="saving || invoicePdfBusy !== null" @click="openInvoiceDocument(i.id, true)">Друк</button>
-         <button :disabled="saving || invoicePdfBusy !== null" @click="linkContact('invoiceId', i.id)">Записати контакт</button>
         </div>
        </article>
        <details v-if="financeAllowed"><summary>Умови видачі та кредиту</summary><CustomerCreditPanel :key="`${selected.customerId}-${selected.branchNo}`" :session="session" :customer-id="Number(selected.customerId)" :branch-no="Number(selected.branchNo)" @busy="saving = $event" /></details>
