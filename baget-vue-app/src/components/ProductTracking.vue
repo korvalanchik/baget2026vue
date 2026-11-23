@@ -1,15 +1,12 @@
 <script setup>
 import { workshopPrintHtml } from '../calculation/workshopDocument.js'
-import CustomerFinancePanel from './CustomerFinancePanel.vue'
-import { canAcceptCustomerPayment } from '../services/customerPayments.js'
 
 import { onMounted, ref } from 'vue'
 import { warehouse, locations, trackingToken } from '../services/warehouse.js'
 const props = defineProps({ session: { type: Object, required: true }, productId: { type: Number, default: null }, initialToken: { type: String, default: '' }, disabled: Boolean })
 const emit = defineEmits(['transferred'])
-const paymentBusy = ref(false)
 const data = ref(null), input = ref(props.initialToken), error = ref(''), busy = ref(false), label = ref(null), note = ref('')
-async function run(fn, readOnly = false) { if (busy.value || (!readOnly && (props.disabled || paymentBusy.value))) return; busy.value = true; error.value = ''; try { await fn() } catch (e) { error.value = e.message } finally { busy.value = false } }
+async function run(fn, readOnly = false) { if (busy.value || (!readOnly && (props.disabled))) return; busy.value = true; error.value = ''; try { await fn() } catch (e) { error.value = e.message } finally { busy.value = false } }
 function load() { return run(async () => { label.value = null; data.value = null; data.value = await warehouse(props.session.token, props.productId ? `/products/by-id/${props.productId}` : `/products/${trackingToken(input.value)}`) }, true) }
 function move(accept, destination) { return run(async () => { data.value = await warehouse(props.session.token, `/products/${data.value.trackingId}/${accept ? 'accept' : 'send'}`, { expectedRevision: data.value.revision, destination, note: note.value }); note.value = ''; emit('transferred') }) }
 function cancelTransfer() { return run(async () => {
@@ -18,7 +15,7 @@ function cancelTransfer() { return run(async () => {
 }) }
 function printLabel() { return run(async () => { label.value = await warehouse(props.session.token, `/products/${data.value.trackingId}/label`) }) }
 function print() {
-  if (!data.value || !label.value || busy.value || props.disabled || paymentBusy.value) return
+  if (!data.value || !label.value || busy.value || props.disabled) return
   const popup = window.open('', '_blank')
   if (!popup) { error.value = 'Дозвольте відкриття вікна для друку.'; return }
   popup.opener = null
@@ -41,27 +38,25 @@ onMounted(() => { if (props.productId || input.value) load() })
       <h4>Замовлення № {{ data.orderNo }} · {{ data.productName }}</h4>
       <p>{{ data.branchName }} · {{ data.state === 'COMPLETED' ? 'Виготовлено' : 'Виробництво ще не завершене' }}</p>
       <p>Місце: <strong>{{ locations[data.location] }}</strong><span v-if="data.pending"> → Очікує приймання: {{ locations[data.pending] }} (передав {{ data.transferActor }})</span></p>
-      <div v-if="data.payment"><p>{{ data.payment.message }}<strong v-if="data.payment.dueDate"> · Сплатити до {{ data.payment.dueDate }}</strong><strong v-if="data.payment.overdue"> · Строк оплати прострочено</strong><span v-if="data.payment.invoiceNo"> · Рахунок № {{ data.payment.invoiceNo }} · Борг: {{ data.payment.debt }} грн</span></p>
-        <CustomerFinancePanel v-if="data.location === 'BRANCH' && canAcceptCustomerPayment(session)" :key="`${data.payment.customerId}-${data.payment.branchNo}`" :session="session" :order-no="data.payment.externalSettlement ? Number(data.orderNo) : null" :customer-id="Number(data.payment.customerId)" :branch-no="Number(data.payment.branchNo)" :invoice-id="data.payment.invoiceId ? Number(data.payment.invoiceId) : null" @paid="paymentBusy = false; load()" @busy="paymentBusy = $event" />
-      </div>
-      <label>Примітка до передачі<input v-model="note" maxlength="1000" :disabled="busy || disabled || paymentBusy"></label>
-      <div class="actions">
-        <button type="button" :disabled="busy" @click="load">Оновити</button>
+      <label>Примітка до передачі<input v-model="note" maxlength="1000" :disabled="busy || disabled"></label>
+      <div class="movement-actions">
+        <button type="button" :disabled="busy || disabled" @click="load">Оновити</button>
+        <button v-if="label" type="button" :disabled="busy || disabled" @click="print">Друкувати етикетку</button>
         <template v-if="data.state === 'COMPLETED'">
-          <button v-if="data.canCancel" type="button" :disabled="busy || disabled || paymentBusy" @click="cancelTransfer">Відкликати передачу</button>
-          <button type="button" :disabled="busy || disabled || paymentBusy" @click="printLabel">Етикетка з QR</button>
-          <button v-if="data.pending && (data.pending !== 'WAREHOUSE' || data.canWarehouse) && (data.pending !== 'WORKSHOP' || data.canReceiveWorkshop)" type="button" :disabled="busy || disabled || paymentBusy || (data.pending === 'CUSTOMER' && !data.payment?.canIssue)" @click="move(true, data.pending)">{{ data.pending === 'CUSTOMER' ? 'Підтвердити видачу клієнту' : 'Підтвердити приймання' }}</button>
-          <button v-if="!data.pending && data.location === 'WORKSHOP' && data.canWarehouse" type="button" :disabled="busy || disabled || paymentBusy" @click="move(false, 'WAREHOUSE')">Передати на склад</button>
-          <button v-if="!data.pending && data.location === 'WAREHOUSE' && data.canWarehouse" type="button" :disabled="busy || disabled || paymentBusy" @click="move(false, 'BRANCH')">Передати до філії</button>
-          <button v-if="!data.pending && data.canReturnWorkshop && (data.location === 'BRANCH' || data.canWarehouse)" type="button" :disabled="busy || disabled || paymentBusy" @click="move(false, 'WORKSHOP')">Повернути до майстерні</button>
-          <button v-if="!data.pending && data.location === 'BRANCH'" type="button" :disabled="busy || disabled || paymentBusy || !data.payment?.canIssue" @click="move(false, 'CUSTOMER')">Передати клієнту</button>
+          <button v-if="data.canCancel" type="button" :disabled="busy || disabled" @click="cancelTransfer">Відкликати передачу</button>
+          <button type="button" :disabled="busy || disabled" @click="printLabel">Етикетка з QR</button>
+          <button v-if="data.pending && (data.pending !== 'WAREHOUSE' || data.canWarehouse) && (data.pending !== 'WORKSHOP' || data.canReceiveWorkshop)" type="button" :disabled="busy || disabled || (data.pending === 'CUSTOMER' && !data.payment?.canIssue)" @click="move(true, data.pending)">{{ data.pending === 'CUSTOMER' ? 'Підтвердити видачу клієнту' : 'Підтвердити приймання' }}</button>
+          <button v-if="!data.pending && data.location === 'WORKSHOP' && data.canWarehouse" type="button" :disabled="busy || disabled" @click="move(false, 'WAREHOUSE')">Передати на склад</button>
+          <button v-if="!data.pending && data.location === 'WAREHOUSE' && data.canWarehouse" type="button" :disabled="busy || disabled" @click="move(false, 'BRANCH')">Передати до філії</button>
+          <button v-if="!data.pending && data.canReturnWorkshop && (data.location === 'BRANCH' || data.canWarehouse)" type="button" :disabled="busy || disabled" @click="move(false, 'WORKSHOP')">Повернути до майстерні</button>
+          <button v-if="!data.pending && data.location === 'BRANCH'" type="button" :disabled="busy || disabled || !data.payment?.canIssue" @click="move(false, 'CUSTOMER')">Передати клієнту</button>
         </template>
       </div>
-      <div v-if="label" class="label"><img :src="label.image" alt="QR виробу"><p>{{ data.orderNo }} · {{ data.productName }}</p><button type="button" :disabled="busy || disabled || paymentBusy" @click="print">Друкувати етикетку</button></div>
+      <div v-if="label" class="label"><img :src="label.image" alt="QR виробу"><p>{{ data.orderNo }} · {{ data.productName }}</p></div>
       <details><summary>Історія переміщень</summary><p v-if="!data.history.length">Переміщень ще немає.</p><p v-for="(e, i) in data.history" :key="i">{{ e.createdAt }} · {{ e.actor }} · {{ e.action === 'SEND' ? 'Передав' : e.action === 'CANCEL' ? 'Відкликав' : 'Прийняв' }}: {{ locations[e.fromLocation] }} → {{ locations[e.toLocation] }}. {{ e.note }}</p></details>
     </template>
   </section>
 </template>
 <style scoped>
-.tracking{padding:16px;border:1px solid #dae2e8;border-radius:8px;margin:12px 0;font-size:13px}.actions{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}label{display:grid;gap:6px;flex:1}input,button{padding:9px;border:1px solid #ccd5dd;border-radius:6px;font:inherit}input{min-width:220px}button{cursor:pointer}button:disabled{opacity:.5}.label img{width:160px}[role=alert]{color:#a22}details{margin-top:14px}
+.tracking{padding:16px;border:1px solid #dae2e8;border-radius:8px;margin:12px 0;font-size:13px}.actions{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}.movement-actions{position:sticky;bottom:0;z-index:5;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:18px -16px -16px;padding:12px 16px;background:#fff;border-top:1px solid #dae2e8;box-shadow:0 -4px 12px #1c304b12}label{display:grid;gap:6px;flex:1}input,button{padding:9px;border:1px solid #ccd5dd;border-radius:6px;font:inherit}input{min-width:220px}button{cursor:pointer}button:disabled{opacity:.5}.label img{width:160px}[role=alert]{color:#a22}details{margin-top:14px}@media(max-width:650px){.movement-actions{gap:8px}.movement-actions button{flex:1 1 145px;min-height:44px}}
 </style>
