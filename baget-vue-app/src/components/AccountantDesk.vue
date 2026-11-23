@@ -10,7 +10,7 @@ import { customerPayments } from '../services/customerPayments.js'
 const props = defineProps({ session: { type: Object, required: true }, initialTab: { type: String, default: 'ready' } })
 const tab = ref(['ready', 'invoices', 'receivables', 'reconciliation'].includes(props.initialTab) ? props.initialTab : 'ready'), ready = ref([]), invoices = ref([]), page = ref(0), picked = ref([]), chosenInvoices = ref([])
 const busy = ref(false), error = ref(''), message = ref(''), detail = ref(null), options = ref({ branches: [], payers: [], partners: [] })
-const cashAccount = ref(null), cashAccountKind = ref(null), paymentInstrument = ref('')
+const cashAccount = ref(null), cashAccountKind = ref(null), paymentInstrument = ref(''), pdfFormat = ref('general')
 const partnerFilter = ref(''), reconciliationPartner = ref(null)
 const payerSearch = ref(''), payer = ref(null), branch = ref(''), note = ref(''), amount = ref(''), advance = ref(''), paymentPending = ref(false)
 let retry = null, paymentRetry = null
@@ -113,7 +113,7 @@ function payment() { return run(async () => {
     throw e
   }
 }) }
-function pdf() { return run(() => productInvoicePdf(props.session.token, detail.value.id, { filename: `Invoice-${detail.value.invoiceNo}.pdf` })) }
+function pdf() { return run(() => productInvoicePdf(props.session.token, detail.value.id, { filename: `Invoice-${detail.value.invoiceNo}-${pdfFormat.value}.pdf`, format: pdfFormat.value })) }
 onMounted(() => run(async () => { options.value = await productInvoices(props.session.token, '/options'); if (options.value.branches.length === 1) branch.value = options.value.branches[0].id; await load() }))
 </script>
 <template>
@@ -142,7 +142,7 @@ onMounted(() => run(async () => { options.value = await productInvoices(props.se
    <label>Примітка<textarea v-model="note" maxlength="1000"></textarea></label><button @click="submit(tab !== 'ready')">{{ tab === 'ready' ? 'Виставити рахунок за вибраними виробами' : 'Об’єднати вибрані рахунки' }}</button>
   </fieldset>
   </template>
-  <article v-if="detail"><h2>Рахунок № {{ detail.invoiceNo }}</h2><p v-if="detail.partnerId"><strong>Рахунок фірмі-посереднику за реселлерською вартістю</strong></p><p>Платник: {{ detail.payerName }} · {{ detail.lifecycle === 'MERGED' ? 'Архівний, об’єднаний' : status[detail.status] }}</p><p>Сума: {{ money(detail.amount) }} грн · залишок: {{ money(detail.debt) }} грн</p><button :disabled="busy" @click="pdf">Завантажити PDF</button><button :disabled="busy" @click="open(detail.id)">Оновити рахунок</button>
+  <article v-if="detail"><h2>Рахунок № {{ detail.invoiceNo }}</h2><p v-if="detail.partnerId"><strong>Рахунок фірмі-посереднику за реселлерською вартістю</strong></p><p>Платник: {{ detail.payerName }} · {{ detail.lifecycle === 'MERGED' ? 'Архівний, об’єднаний' : status[detail.status] }}</p><p>Сума: {{ money(detail.amount) }} грн · залишок: {{ money(detail.debt) }} грн</p><label class="pdf-format">Формат рахунку<select v-model="pdfFormat" :disabled="busy"><option value="general">Загальний</option><option value="detailed">Деталізований</option></select></label><button :disabled="busy" @click="pdf">Завантажити PDF</button><button :disabled="busy" @click="open(detail.id)">Оновити рахунок</button>
    <div class="table"><table><thead><tr><th>Замовлення / виріб</th><th>{{ detail.partnerId ? 'Реселлерська вартість' : 'Підтверджена вартість' }}</th><th>До цього рахунку</th><th>Походження</th></tr></thead><tbody><tr v-for="p in detail.products" :key="p.productId"><td>{{ p.orderNo }} · виріб {{ p.productId }} ({{ p.snapshot.widthMm }} × {{ p.snapshot.heightMm }} мм, {{ p.snapshot.configuration?.draft?.form?.productQuantity || 1 }} екз.)</td><td>{{ money(p.originalAmount) }}</td><td>{{ money(p.amount) }}</td><td><button v-if="p.sourceInvoiceId" :disabled="busy" @click="open(p.sourceInvoiceId)">Рахунок {{ p.sourceInvoiceNo }}</button><span v-else>Первинне виставлення</span></td></tr></tbody></table></div>
    <p v-for="target in detail.mergedInto" :key="target.id">Залишок перенесено до <button :disabled="busy" @click="open(target.id)">рахунку № {{ target.invoiceNo }}</button></p>
    <details><summary>Історія рахунку</summary><p v-for="(e, index) in detail.history" :key="index">{{ e.createdAt }} · {{ ({ INVOICE: 'Виставлення', PAYMENT: 'Оплата', ADVANCE_ALLOCATION: 'Зарахування авансу', INVOICE_MERGE_IN: 'Перенесення до нового рахунку', INVOICE_MERGE_OUT: 'Прийнятий борг' })[e.type] || e.type }}: {{ money(e.amount) }} грн. {{ e.note }}</p></details>
