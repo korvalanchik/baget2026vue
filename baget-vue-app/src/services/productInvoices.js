@@ -10,11 +10,11 @@ export async function productInvoices(token, path = '', body) {
  * Downloads or opens the same product-invoice PDF used by the accounting desk.
  * The endpoint and authenticated Blob download flow are shared by CRM.
  */
-export async function productInvoicePdf(token, id, { open = false, print = false, filename = `Invoice-${id}.pdf` } = {}) {
+export async function productInvoicePdf(token, id, { open = false, print = false, filename = `Invoice-${id}.pdf`, format = 'general' } = {}) {
  const tab = (open || print) ? window.open('about:blank', '_blank') : null
  if ((open || print) && !tab) throw new Error('Браузер заблокував нову вкладку. Дозвольте спливаючі вікна для цього сайту й повторіть.')
  try {
-  const r = await fetch(`${apiOrigin}/api/product-invoices/${encodeURIComponent(id)}/pdf`, { headers: { Authorization: `Bearer ${token}` } })
+  const r = await fetch(`${apiOrigin}/api/product-invoices/${encodeURIComponent(id)}/pdf?format=${encodeURIComponent(format)}`, { headers: { Authorization: `Bearer ${token}` } })
   if (!r.ok) {
    const error = new Error('Не вдалося сформувати PDF.')
    error.status = r.status
