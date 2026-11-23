@@ -6,7 +6,7 @@ import { warehouse, locations, trackingToken } from '../services/warehouse.js'
 const props = defineProps({ session: { type: Object, required: true }, productId: { type: Number, default: null }, initialToken: { type: String, default: '' }, disabled: Boolean })
 const emit = defineEmits(['transferred'])
 const data = ref(null), input = ref(props.initialToken), error = ref(''), busy = ref(false), label = ref(null), note = ref('')
-async function run(fn, readOnly = false) { if (busy.value || (!readOnly && (props.disabled))) return; busy.value = true; error.value = ''; try { await fn() } catch (e) { error.value = e.message } finally { busy.value = false } }
+async function run(fn, readOnly = false) { if (busy.value || (!readOnly && props.disabled)) return; busy.value = true; error.value = ''; try { await fn() } catch (e) { error.value = e.message } finally { busy.value = false } }
 function load() { return run(async () => { label.value = null; data.value = null; data.value = await warehouse(props.session.token, props.productId ? `/products/by-id/${props.productId}` : `/products/${trackingToken(input.value)}`) }, true) }
 function move(accept, destination) { return run(async () => { data.value = await warehouse(props.session.token, `/products/${data.value.trackingId}/${accept ? 'accept' : 'send'}`, { expectedRevision: data.value.revision, destination, note: note.value }); note.value = ''; emit('transferred') }) }
 function cancelTransfer() { return run(async () => {
