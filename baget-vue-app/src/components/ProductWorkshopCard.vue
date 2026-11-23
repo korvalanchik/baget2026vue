@@ -20,6 +20,7 @@ const changed = p => draftKey(p) !== baselines.value[p.id]
 const dirty = computed(() => products.value.some(changed) || Object.values(reworkDirty.value).some(Boolean))
 const completed = computed(() => products.value.filter(p => p.confirmed).length)
 const activeProducts = computed(() => activeProductId.value == null ? products.value.slice(0, 1) : products.value.filter(product => product.id === activeProductId.value))
+const productNumber = product => products.value.findIndex(item => item.id === product.id) + 1
 const units = { METER: 'м', SQUARE_METER: 'м²', PIECE: 'шт' }
 const date = value => value ? String(value).replace('T', ' ').slice(0, 19) : '—'
 const actions = { REWORK_OPEN: 'Відкрито доопрацювання', REWORK_SAVE: 'Збережено додаткові витрати', REWORK_COMPLETE: 'Завершено доопрацювання', CORRECTION: 'Збережено обмір і витрати', COMPLETE: 'Підтверджено завершення', STATE_ACCEPTED: 'Прийнято від філії', STATE_IN_PROGRESS: 'В роботі', STATE_PAUSED: 'Призупинено' }
@@ -123,8 +124,8 @@ onMounted(reload)
       <p v-if="!view.canEdit">Доступний перегляд. Виробничі дії виконує майстер або адміністратор.</p>
       <p v-if="dirty" class="notice">Є незбережені зміни.</p>
       <nav v-if="products.length > 1" class="product-tabs" aria-label="Вироби замовлення"><button v-for="(product, index) in products" :key="product.id" type="button" :class="{ active: activeProductId === product.id, changed: changed(product) }" @click="activeProductId = product.id"><span>Виріб {{ index + 1 }}</span><small>{{ product.name || 'Без назви' }}</small><i v-if="changed(product)" aria-label="Є незбережені зміни"></i></button></nav>
-      <article v-for="(p, index) in activeProducts" :key="p.id" class="product">
-        <header><h4>{{ p.name || `Виріб ${index + 1}` }} · Замовлення № {{ orderNo }}</h4><strong>{{ productStates[p.state] || p.state }}</strong></header>
+      <article v-for="p in activeProducts" :key="p.id" class="product">
+        <header><h4>{{ p.name || `Виріб ${productNumber(p)}` }} · Замовлення № {{ orderNo }}</h4><strong>{{ productStates[p.state] || p.state }}</strong></header>
         <p>Майстер: {{ p.master || 'ще не прийнято' }} · Прийнято: {{ date(p.acceptedAt) }}<span v-if="p.completedAt"> · Завершено: {{ date(p.completedAt) }}</span></p>
         <div class="document-actions"><button type="button" :disabled="busy || dirty" @click="printDocument(p, 'sheet')">Друк робочого листа / PDF</button><button v-if="p.confirmed && p.state === 'COMPLETED' && !p.rework?.active" type="button" :disabled="busy || dirty" @click="printDocument(p, 'label')">Етикетка з QR</button><small>Друк збережених даних. Етикетка — після завершення виробу.</small></div>
         <WorkshopProductOverview :product="p" :header="orderHeader" :dirty="changed(p)" />
