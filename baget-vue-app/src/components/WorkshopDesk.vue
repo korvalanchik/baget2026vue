@@ -130,7 +130,6 @@ onMounted(async () => { await refresh(); if (props.initialOrderNo) await open({ 
               <span class="task-heading"><strong>№ {{ order.orderNo }}</strong><span>↗</span></span>
               <span class="task-branch">{{ order.branchName || 'Філію не вказано' }}</span>
               <span class="task-customer">{{ order.company || 'Клієнта не вказано' }}</span>
-              <span class="task-phone">{{ order.mobile || 'Телефон не вказано' }}</span>
               <span class="task-date">{{ order.shipDate ? 'Термін' : 'Прийнято' }}: {{ formatDate(order.shipDate || order.saleDate) }}</span>
               <span v-if="urgency(order)" class="task-urgent">{{ urgency(order) }}</span>
               <span v-if="order.statusOrder === 5" class="task-paid">Відмова клієнта</span>
@@ -139,7 +138,6 @@ onMounted(async () => { await refresh(); if (props.initialOrderNo) await open({ 
           </div>
         </section>
       </div>
-      <p class="workshop-hint">Без дати готовності позначаємо замовлення віком понад 3 та 5 днів. Рахунки — у розділі «Рахунки за виробами», приймання та видача — у розділі «Замовлення».</p>
     </div>
     <dialog ref="dialog" class="workshop-dialog" aria-labelledby="workshop-title" @cancel.prevent="close()">
       <form v-if="selected && draft" @submit.prevent="save">
