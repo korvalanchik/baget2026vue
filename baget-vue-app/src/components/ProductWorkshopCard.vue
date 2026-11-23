@@ -1,8 +1,6 @@
 <script setup>
 import WorkshopProductOverview from './WorkshopProductOverview.vue'
 import { consumptionDifference, workshopPrintHtml } from '../calculation/workshopDocument.js'
-import PriceApprovalPanel from './PriceApprovalPanel.vue'
-import ProductConsumptionCost from './ProductConsumptionCost.vue'
 import ProductTracking from './ProductTracking.vue'
 import { branchDimensions, historyActualLabel } from '../calculation/workshopHistory.js'
 import ProductRework from './ProductRework.vue'
@@ -15,20 +13,17 @@ const props = defineProps({ session: { type: Object, required: true }, orderNo: 
 const emit = defineEmits(['changed', 'dirty', 'busy'])
 const view = ref(null), products = ref([]), baselines = ref({}), working = ref(false), error = ref(''), message = ref('')
 const measurements = ref({})
-const priceReady = ref({})
 const reworkDirty = ref({}), childBusy = ref({})
 const busy = computed(() => working.value || Object.values(childBusy.value).some(Boolean))
 const changed = p => draftKey(p) !== baselines.value[p.id]
 const dirty = computed(() => products.value.some(changed) || Object.values(reworkDirty.value).some(Boolean))
 const completed = computed(() => products.value.filter(p => p.confirmed).length)
 const units = { METER: 'м', SQUARE_METER: 'м²', PIECE: 'шт' }
-const money = value => value == null ? '—' : Number(value).toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const date = value => value ? String(value).replace('T', ' ').slice(0, 19) : '—'
 const actions = { REWORK_OPEN: 'Відкрито доопрацювання', REWORK_SAVE: 'Збережено додаткові витрати', REWORK_COMPLETE: 'Завершено доопрацювання', CORRECTION: 'Збережено обмір і витрати', COMPLETE: 'Підтверджено завершення', STATE_ACCEPTED: 'Прийнято від філії', STATE_IN_PROGRESS: 'В роботі', STATE_PAUSED: 'Призупинено' }
 watch(dirty, value => emit('dirty', value))
 watch(busy, value => emit('busy', value), { flush: 'sync' })
 function accept(data) {
-  priceReady.value = {}
   reworkDirty.value = {}
   measurements.value = {}
   view.value = data
@@ -129,33 +124,27 @@ onMounted(reload)
         <p>Майстер: {{ p.master || 'ще не прийнято' }} · Прийнято: {{ date(p.acceptedAt) }}<span v-if="p.completedAt"> · Завершено: {{ date(p.completedAt) }}</span></p>
         <div class="document-actions"><button type="button" :disabled="busy || dirty" @click="printDocument(p, 'sheet')">Друк робочого листа / PDF</button><button v-if="p.confirmed && p.state === 'COMPLETED' && !p.rework?.active" type="button" :disabled="busy || dirty" @click="printDocument(p, 'label')">Етикетка з QR</button><small>Друк збережених даних. Етикетка — після завершення виробу.</small></div>
         <WorkshopProductOverview :product="p" :header="orderHeader" :dirty="changed(p)" />
-        <PriceApprovalPanel :key="`${p.id}-${view.revision}`" :session="session" :product-id="Number(p.id)" :revision="Number(view.revision)" :disabled="busy || dirty" @ready="priceReady[p.id] = $event" @changed="reload" />
         <div class="measurements">
           <label>Обмір роботи без полів паспарту: ширина, мм<input v-model="p.widthMm" type="number" min="0.001" max="999999" step="0.001" :disabled="busy || !productEditable(p, view.canEdit) || othersDirty(p)"></label>
           <label>Висота роботи без полів паспарту, мм<input v-model="p.heightMm" type="number" min="0.001" max="999999" step="0.001" :disabled="busy || !productEditable(p, view.canEdit) || othersDirty(p)"></label>
         </div>
-        <p>Розміри — результат обміру роботи клієнта. Кількість нижче — загальна фактична витрата на позицію, включно з усіма екземплярами та шарами. Натисніть «Розрахувати за обміром», щоб заповнити кількість і розміри позицій, потім уточніть фактичну витрату.</p>
-        <button v-if="productEditable(p, view.canEdit)" type="button" :disabled="busy || othersDirty(p)" @click="calculate(p)">Розрахувати за обміром</button>
-        <MeasurementResult :result="measurements[p.id]" :stale="measurementStale(measurements[p.id], p)" />
-        <button v-if="productEditable(p, view.canEdit) && measurements[p.id]" type="button" :disabled="busy || othersDirty(p)" @click="delete measurements[p.id]">Продовжити з ручною витратою</button>
-        <button v-if="productEditable(p, view.canEdit)" type="button" :disabled="busy || othersDirty(p)" @click="fill(p)">Розміри підтверджено — заповнити за планом</button>
-        <h4 class="consumption-title">Матеріали та роботи · план / факт</h4><p class="difference-help">Відхилення = факт мінус план. Порожній факт не означає нуль. Підсвічено позиції зі зміненою витратою.</p>
-        <div class="table-wrap"><table><thead><tr><th>Матеріал / робота</th><th>План</th><th>Факт</th><th>Відхилення</th><th>Ширина, мм</th><th>Висота, мм</th><th>Ціна / од.</th><th>Збережена сума</th></tr></thead><tbody>
+        <details class="work-help"><summary>Підказка з обміру та витрати</summary><p>Внесіть обмір, за потреби заповніть витрати за планом або перерахунком, потім перевірте факт і збережіть.</p><p>Погодження ціни виконує менеджер у картці замовлення; майстерня не показує ціни та оплату.</p></details>
+        <details v-if="productEditable(p, view.canEdit)" class="advanced-actions"><summary>Заповнити за планом або перерахувати</summary><button type="button" :disabled="busy || othersDirty(p)" @click="calculate(p)">Розрахувати за обміром</button><MeasurementResult :result="measurements[p.id]" :stale="measurementStale(measurements[p.id], p)" /><button v-if="measurements[p.id]" type="button" :disabled="busy || othersDirty(p)" @click="delete measurements[p.id]">Ручна витрата</button><button type="button" :disabled="busy || othersDirty(p)" @click="fill(p)">Заповнити за планом</button></details>
+        <h4 class="consumption-title">Матеріали та роботи</h4>
+        <div class="table-wrap"><table><thead><tr><th>Матеріал / робота</th><th>План</th><th>Факт</th><th>Відхилення</th><th>Ширина, мм</th><th>Висота, мм</th></tr></thead><tbody>
           <tr v-for="line in p.lines" :key="line.itemNo" :class="{ 'quantity-changed': consumptionDifference(line)?.value }"><td data-label="Матеріал / робота">{{ line.description }}<small>{{ line.material ? 'Матеріал' : 'Робота' }} · {{ units[line.unit] || line.unit }}</small></td><td data-label="План">{{ line.planned ?? '—' }}</td>
             <td data-label="Факт"><input v-model="line.actual" type="number" min="0" :step="line.unit === 'PIECE' ? 1 : 0.000001" :aria-label="`Факт: ${line.description}`" :disabled="busy || !productEditable(p, view.canEdit) || othersDirty(p)"></td>
             <td data-label="Відхилення">{{ consumptionDifference(line)?.text ?? '—' }}</td><td data-label="Ширина, мм"><input v-model="line.widthMm" type="number" min="0.001" step="0.001" :aria-label="`Ширина: ${line.description}`" :disabled="busy || !productEditable(p, view.canEdit) || othersDirty(p)"></td>
-            <td data-label="Висота, мм"><input v-model="line.heightMm" type="number" min="0.001" step="0.001" :aria-label="`Висота: ${line.description}`" :disabled="busy || !productEditable(p, view.canEdit) || othersDirty(p)"></td>
-            <td data-label="Ціна / од.">{{ money(line.price) }}</td><td data-label="Збережена сума">{{ money(line.amount) }}</td></tr>
+            <td data-label="Висота, мм"><input v-model="line.heightMm" type="number" min="0.001" step="0.001" :aria-label="`Висота: ${line.description}`" :disabled="busy || !productEditable(p, view.canEdit) || othersDirty(p)"></td></tr>
         </tbody></table></div>
         <details v-if="!p.rework?.active && p.rework?.reservations?.length"><summary>Потреба й резерв після останнього збереження</summary><p v-for="m in p.rework.reservations" :key="m.partNo">{{ m.description }}: потрібно {{ m.demand }}, зарезервовано {{ m.reserved }}, нестача {{ m.shortage }} {{ units[m.unit] }}<span v-if="!m.stockKnown"> · залишок складу невідомий</span>.</p></details>
         <label class="note">Примітка до обміру / причина коригування<textarea v-model="p.note" rows="2" maxlength="2000" :disabled="busy || !productEditable(p, view.canEdit) || othersDirty(p)"></textarea></label>
-        <div v-if="view.canEdit" class="actions">
-          <button v-for="[state, label] in productActions(p)" :key="state" type="button" :disabled="busy || dirty || (state === 'IN_PROGRESS' && priceReady[p.id] !== true)" @click="transition(p, state)">{{ label }}</button>
-          <button v-if="productEditable(p, view.canEdit)" type="button" :disabled="busy || !changed(p) || othersDirty(p)" @click="save(p)">Зберегти обмір і витрати</button>
-          <button v-if="p.state === 'IN_PROGRESS' && !p.confirmed && !p.rework?.active" type="button" :disabled="busy || dirty || !p.widthMm || !p.heightMm || p.lines.some(l => l.actual === '')" @click="finish(p)">Завершити виріб і підтвердити витрати</button>
-        </div>
-        <p v-if="p.confirmed"><strong>Підтверджена вартість: {{ money(p.total) }} грн.</strong> Виробничі дані зафіксовано.</p>
-        <ProductConsumptionCost v-if="session.roles?.includes('ROLE_ADMIN')" :key="`cost-${p.id}-${p.revision}`" :session="session" :product-id="Number(p.id)" />
+        <footer v-if="view.canEdit" class="actions">
+          <button v-for="[state, label] in productActions(p)" :key="state" type="button" :disabled="busy || dirty" @click="transition(p, state)">{{ label }}</button>
+          <button v-if="productEditable(p, view.canEdit)" type="button" :disabled="busy || !changed(p) || othersDirty(p)" @click="save(p)">Зберегти</button>
+          <button v-if="p.state === 'IN_PROGRESS' && !p.confirmed && !p.rework?.active" class="primary-action" type="button" :disabled="busy || dirty || !p.widthMm || !p.heightMm || p.lines.some(l => l.actual === '')" @click="finish(p)">Завершити виріб</button>
+        </footer>
+        <p v-if="p.confirmed"><strong>Виробничі дані зафіксовано.</strong></p>
         <ProductTracking v-if="p.confirmed || p.rework?.active" :key="`${p.id}-${p.revision}`" :session="session" :product-id="p.id" :disabled="busy || dirty" @transferred="reload" />
         <ProductRework :session="session" :order-no="orderNo" :revision="view.revision" :product="p" :can-edit="view.canEdit" :disabled="busy || othersDirty(p) || changed(p)" @updated="accept" @dirty="reworkDirty[p.id] = $event" @busy="childBusy[p.id] = $event" />
         <details><summary>Історія дій ({{ p.events.length }})</summary>
@@ -177,7 +166,7 @@ onMounted(reload)
 </template>
 <style scoped>
 .branch-dimensions{background:#eef5fa;border:1px solid #cbdde9;border-radius:8px;padding:12px;margin:12px 0}.branch-dimensions p{margin:6px 0}
-.product-workshop{font-size:13px}.product-workshop header,.actions{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.product{border:1px solid #dfe5eb;border-radius:10px;padding:16px;margin:18px 0}.product h4{margin:0}.product p{line-height:1.6;color:#526278}.measurements{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}label{display:grid;gap:6px}.note textarea{width:100%;box-sizing:border-box;resize:vertical}input,textarea,button{font:inherit;padding:8px;border:1px solid #cbd5df;border-radius:6px}input{width:105px}button{background:#f5f7fa;cursor:pointer}button:disabled,input:disabled{opacity:.6;cursor:default}.actions{justify-content:flex-start;margin:14px 0}.table-wrap{overflow:auto;margin:14px 0}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:8px;border-bottom:1px solid #e2e8ee}small{display:block;color:#69798a}details{margin:12px 0}summary{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto}[role=alert]{color:#a32929}[role=status]{color:#22663b}.notice{color:#97601c}li{margin-bottom:10px}input:focus-visible,button:focus-visible,textarea:focus-visible{outline:2px solid #cf943f;outline-offset:2px}
+.product-workshop{font-size:13px}.product-workshop header,.actions{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.work-help,.advanced-actions{margin:14px 0;padding:10px 12px;border:1px solid #dfe5eb;border-radius:8px;background:#f8fafc}.work-help summary,.advanced-actions summary{cursor:pointer;font-weight:700}.work-help p{margin:8px 0 0}.advanced-actions button{margin:10px 8px 0 0}.actions{position:sticky;bottom:0;z-index:2;background:#fff;border-top:1px solid #dfe5eb;padding:12px;margin:18px -16px -16px}.primary-action{background:#185c63!important;color:#fff}.product{border:1px solid #dfe5eb;border-radius:10px;padding:16px;margin:18px 0}.product h4{margin:0}.product p{line-height:1.6;color:#526278}.measurements{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}label{display:grid;gap:6px}.note textarea{width:100%;box-sizing:border-box;resize:vertical}input,textarea,button{font:inherit;padding:8px;border:1px solid #cbd5df;border-radius:6px}input{width:105px}button{background:#f5f7fa;cursor:pointer}button:disabled,input:disabled{opacity:.6;cursor:default}.actions{justify-content:flex-start;margin:14px 0}.table-wrap{overflow:auto;margin:14px 0}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:8px;border-bottom:1px solid #e2e8ee}small{display:block;color:#69798a}details{margin:12px 0}summary{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto}[role=alert]{color:#a32929}[role=status]{color:#22663b}.notice{color:#97601c}li{margin-bottom:10px}input:focus-visible,button:focus-visible,textarea:focus-visible{outline:2px solid #cf943f;outline-offset:2px}
 
 .document-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0}.document-actions button{min-height:44px;background:#185c63;color:white}.document-actions small{flex-basis:100%}.consumption-title{margin-top:20px!important}.quantity-changed{background:#fff5df}.difference-help{font-size:12px}.table-wrap input{box-sizing:border-box;max-width:100%}
 @media(max-width:650px){.product{padding:10px}.product-workshop button{min-height:44px}.measurements{display:grid;grid-template-columns:1fr;width:100%}.measurements input{width:100%;box-sizing:border-box}.table-wrap{overflow:visible}.table-wrap table,.table-wrap tbody{display:block}.table-wrap thead{display:none}.table-wrap tr{display:grid;grid-template-columns:1fr 1fr;gap:8px;border:1px solid #d8e2e8;border-radius:8px;padding:10px;margin-bottom:10px}.table-wrap td{display:block;padding:0;border:0;min-width:0}.table-wrap td:first-child{grid-column:1/-1;font-weight:600}.table-wrap td::before{content:attr(data-label);display:block;font-size:11px;color:#526571;font-weight:400;margin-bottom:4px}.table-wrap td:first-child::before{display:none}.table-wrap input{width:100%;min-height:44px;font-size:16px}.document-actions button{flex:1 1 180px}}
