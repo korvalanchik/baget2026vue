@@ -8,7 +8,7 @@ import { paymentAmounts, normalizeInvoicePaymentPayload } from '../calculation/b
 import { productInvoices, productInvoicePdf } from '../services/productInvoices.js'
 import { customerPayments } from '../services/customerPayments.js'
 const props = defineProps({ session: { type: Object, required: true }, initialTab: { type: String, default: 'ready' } })
-const tab = ref(['ready', 'invoices', 'receivables', 'reconciliation'].includes(props.initialTab) ? props.initialTab : 'ready'), ready = ref([]), invoices = ref([]), page = ref(0), picked = ref([]), chosenInvoices = ref([])
+const tab = ref(['ready', 'invoices', 'receivables', 'reconciliation'].includes(props.initialTab) ? props.initialTab : 'ready'), ready = ref([]), invoices = ref([]), invoicesHasMore = ref(false), page = ref(0), picked = ref([]), chosenInvoices = ref([])
 const busy = ref(false), error = ref(''), message = ref(''), detail = ref(null), options = ref({ branches: [], payers: [], partners: [] })
 const cashAccount = ref(null), cashAccountKind = ref(null), paymentInstrument = ref(''), pdfFormat = ref('general')
 const partnerFilter = ref(''), reconciliationPartner = ref(null)
@@ -56,7 +56,16 @@ function choosePartner() {
 }
 const mergeTotal = computed(() => invoices.value.filter(i => chosenInvoices.value.includes(i.id)).reduce((s, i) => s + Number(i.debt), 0))
 async function run(fn) { if (busy.value) return; busy.value = true; error.value = ''; message.value = ''; try { await fn() } catch (e) { error.value = e.message } finally { busy.value = false } }
-async function load() { if (!['ready', 'invoices'].includes(tab.value)) return; if (tab.value === 'ready') ready.value = await productInvoices(props.session.token, `/ready?page=${page.value}${partnerFilter.value ? `&partnerId=${partnerFilter.value}` : ''}`); else invoices.value = await productInvoices(props.session.token, `?page=${page.value}`) }
+async function load() {
+ if (!['ready', 'invoices'].includes(tab.value)) return
+ if (tab.value === 'ready') {
+  ready.value = await productInvoices(props.session.token, `/ready?page=${page.value}${partnerFilter.value ? `&partnerId=${partnerFilter.value}` : ''}`)
+  return
+ }
+ const rows = await productInvoices(props.session.token, `?page=${page.value}`)
+ invoicesHasMore.value = rows.length > 10
+ invoices.value = rows.slice(0, 10)
+}
 function refresh() { picked.value = []; chosenInvoices.value = []; return run(load) }
 function changeTab(t) { if (busy.value) return; tab.value = t; page.value = 0; if (['ready', 'invoices'].includes(t)) refresh() }
 function reconcilePartner(id) { reconciliationPartner.value = Number(id); tab.value = 'reconciliation' }
@@ -131,7 +140,7 @@ onMounted(() => run(async () => { options.value = await productInvoices(props.se
   <div class="table"><table v-if="tab === 'ready'"><thead><tr><th>Обрати</th><th>Замовлення / виріб</th><th>Клієнт</th><th>Філія</th><th>Роздрібна сума</th><th>До рахунку</th></tr></thead><tbody><tr v-for="p in ready" :key="p.productId"><td><input v-model="picked" type="checkbox" :value="p.productId" :disabled="busy || Boolean(p.billingError)" :aria-label="`Вибрати виріб ${p.productName} замовлення ${p.orderNo}`"></td><td>{{ p.orderNo }} · {{ p.productName }}</td><td>{{ p.customerName }} <button :disabled="busy" @click="useOwner(p)">{{ p.commerceMode === 'RESELLER' ? 'Фірма — платник' : 'Цей клієнт — платник' }}</button></td><td>{{ p.branchName }}</td><td>{{ money(p.retailAmount) }}</td><td><template v-if="!p.billingError">{{ money(p.amount) }}<small v-if="p.commerceMode === 'RESELLER'"> · реселлерська</small></template><span v-else role="alert">{{ p.billingError }}</span></td></tr></tbody></table>
   <table v-else><thead><tr><th>Об’єднати</th><th>Рахунок</th><th>Платник</th><th>Сума</th><th>Борг</th><th>Стан</th></tr></thead><tbody><tr v-for="i in invoices" :key="i.id"><td><input v-model="chosenInvoices" type="checkbox" :value="i.id" :disabled="busy || i.lifecycle !== 'ACTIVE' || Number(i.debt) <= 0 || i.status === 'CANCELLED'" :aria-label="`Обрати рахунок ${i.invoiceNo}`"></td><td><button :disabled="busy" @click="open(i.id)">{{ i.invoiceNo }}</button></td><td>{{ i.payerName }}</td><td>{{ money(i.amount) }}</td><td>{{ money(i.debt) }}</td><td>{{ i.lifecycle === 'MERGED' ? 'Об’єднаний (архів)' : status[i.status] }}</td></tr></tbody></table></div>
   <p v-if="!busy && !error && !(tab === 'ready' ? ready.length : invoices.length)">На цій сторінці записів немає.</p>
-  <div class="tools"><button :disabled="busy || !page" @click="turn(-1)">Назад</button><span>{{ page + 1 }}</span><button :disabled="busy || (tab === 'ready' ? ready.length : invoices.length) < 100" @click="turn(1)">Далі</button></div>
+  <div class="tools"><button :disabled="busy || !page" @click="turn(-1)">Назад</button><span>{{ page + 1 }}</span><button :disabled="busy || (tab === 'ready' ? ready.length < 100 : !invoicesHasMore)" @click="turn(1)">Далі</button></div>
   <fieldset :disabled="busy"><legend>{{ tab === 'ready' ? 'Оформлення рахунку' : 'Об’єднання залишків боргу' }}</legend>
    <p>Обрано на суму: {{ money(tab === 'ready' ? selectedTotal : mergeTotal) }} грн. Вибір діє в межах поточної сторінки.</p>
    <div class="tools"><label>Платник / фірма-посередник<input v-model="payerSearch" placeholder="Назва або телефон, від 2 символів" @keydown.enter.prevent="findPayer"></label><button @click="findPayer">Знайти платника</button></div>
