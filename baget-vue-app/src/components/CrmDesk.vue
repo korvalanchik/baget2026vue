@@ -9,6 +9,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import PickupActions from './PickupActions.vue'
 import { crm } from '../services/crm.js'
 import { productInvoicePdf } from '../services/productInvoices.js'
+import { openPreliminaryOrderInvoice } from '../services/preliminaryOrderInvoice.js'
 import { canAcceptCustomerPayment } from '../services/customerPayments.js'
 import { outcomes, locations, productionStates, orderStates, phoneLink, contactPayload, groupedOrders } from '../calculation/crm.js'
 const props = defineProps({ session: { type: Object, required: true }, initialCustomer: { type: Object, default: null } })
@@ -22,6 +23,7 @@ const filters = reactive({ branch: '', tab: 'READY', q: '', all: false, due: fal
 const form = reactive({ outcome: 'NOTE', note: '', orderNo: '', invoiceId: '', nextContactDate: '' })
 const formBaseline = ref('')
 const invoicePdfBusy = ref(null)
+const preliminaryPdfBusy = ref(null)
 const dirty = computed(() => JSON.stringify(form) !== formBaseline.value)
 const pickupByOrder = computed(() => new Map((detail.value?.pickupOrders || []).map(o => [String(o.orderNo), o])))
 const orders = computed(() => {
@@ -33,6 +35,7 @@ const orders = computed(() => {
  }
  return list
 })
+const preliminaryOrders = computed(() => orders.value.filter(o => o.commerceMode === 'RESELLER'))
 const pickupLabels = { NEEDS_NOTICE: 'потрібно повідомити', NO_ANSWER: 'не відповів', AGREED: 'домовлено про отримання', OVERDUE: 'дата отримання минула', NOTIFIED: 'повідомлено' }
 async function toggleIssue(orderNo, event) {
  if (saving.value || issueLocked.value) return
@@ -58,6 +61,13 @@ function contactTiming(value) {
  const part = key => parts.find(p => p.type === key).value
  const today = `${part('year')}-${part('month')}-${part('day')}`
  return value < today ? 'Контакт пропущено' : value === today ? 'Зв’язатися сьогодні' : 'Наступний контакт'
+}
+async function openPreliminaryPdf(orderNo) {
+ if (preliminaryPdfBusy.value !== null || saving.value) return
+ preliminaryPdfBusy.value = String(orderNo); error.value = ''
+ try { await openPreliminaryOrderInvoice(props.session.token, orderNo) }
+ catch (e) { error.value = e.message }
+ finally { preliminaryPdfBusy.value = null }
 }
 async function downloadInvoicePdf(invoiceId, invoiceNo) {
  if (invoicePdfBusy.value !== null) return
