@@ -16,6 +16,7 @@ import {
 } from "vue";
 import { searchCustomers } from "../services/orders.js";
 import { calculatedOrder } from "../services/calculatedOrders.js";
+import { openPreliminaryOrderInvoice } from "../services/preliminaryOrderInvoice.js";
 import {
   buildOrderDraft,
   restoreOrderDraft,
@@ -62,6 +63,7 @@ const deadlineApprovalRequired = computed(() =>
 );
 let customerSearchTimer;
 const orderBusy = ref(false);
+const preliminaryInvoiceBusy = ref(false);
 const savedOrder = ref(null);
 const savedDirty = ref(false);
 const deadlineStart = ref(kyivToday());
@@ -212,6 +214,14 @@ function acceptSaved(order, restore = false) {
   savedDirty.value = false;
   openNumber.value = String(order.orderNo);
   restoring = false;
+}
+async function openPreliminaryInvoice() {
+  if (!savedOrder.value || savedOrder.value.commerceMode !== "RESELLER" || preliminaryInvoiceBusy.value) return;
+  preliminaryInvoiceBusy.value = true;
+  error.value = "";
+  try { await openPreliminaryOrderInvoice(props.session.token, savedOrder.value.orderNo); }
+  catch (e) { error.value = e.message; }
+  finally { preliminaryInvoiceBusy.value = false; }
 }
 async function saveOrder() {
   deadlineStart.value = kyivToday();
@@ -584,7 +594,11 @@ onBeforeUnmount(() => {
             <template v-if="shortages.length">
               <p><strong>У резерві є дефіцит. Орієнтир готовності — {{ leadConfig.shortageDays }} робочих днів: {{ shortDate(timing.extended) }}.</strong> Строк залежить від постачання. Узгодьте його з клієнтом або замініть матеріал.</p>
               <ul><li v-for="m in shortages" :key="`${m.productId}-${m.partNo}`">{{ m.productName }} · {{ m.description }}: не вистачає {{ amount(m.shortage) }} {{ units[m.unit] || m.unit }}</li></ul>
-              <p v-if="savedDirty">Склад або дані змінено. Дефіцит показано за останнім збереженим резервом; збережіть зміни для повторної перевірки.</p>
+              <div v-if="savedOrder.commerceMode === 'RESELLER'" class="estimate-actions">
+        <button type="button" :disabled="preliminaryInvoiceBusy || orderBusy" @click="openPreliminaryInvoice">{{ preliminaryInvoiceBusy ? 'Формуємо PDF…' : 'Попередній рахунок (PDF)' }}</button>
+        <span class="estimate-muted">Інформаційний документ за поточним збереженим станом замовлення.</span>
+      </div>
+      <p v-if="savedDirty">Склад або дані змінено. Дефіцит показано за останнім збереженим резервом; збережіть зміни для повторної перевірки.</p>
             </template>
             <p v-if="timing.warning && !deadlineApprovalRequired" role="alert">Обрана дата раніша за {{ shortages.length ? leadConfig.shortageDays : leadConfig.minDays }} робочих днів. Можлива затримка виконання.</p>
             <button v-if="timing.warning || (!details.dueDate && shortages.length)" type="button" @click="applySuggestedDate">Встановити {{ shortDate(timing.target) }}</button>
