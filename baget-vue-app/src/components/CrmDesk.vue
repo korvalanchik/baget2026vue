@@ -237,7 +237,13 @@ onMounted(async () => {
        </article>
       </section>
       <section v-if="cardTab === 'invoices'">
-       <h3>Рахунки клієнта</h3><p class="muted small">Оплати, аванс і залишок доступні за кнопкою фінансового стану вгорі картки.</p><p v-if="detail.invoices.length > 200">Показано останні 200 рахунків.</p><p v-if="!detail.invoices.length" class="empty">Рахунків немає.</p>
+       <h3>Рахунки клієнта</h3><p class="muted small">Оплати, аванс і залишок доступні за кнопкою фінансового стану вгорі картки.</p>
+       <h4 v-if="preliminaryOrders.length">Попередні рахунки за замовленнями</h4>
+       <article v-for="o in preliminaryOrders" :key="'preliminary-' + o.orderNo" class="invoice-row">
+        <div class="invoice-main"><strong>Замовлення № {{ o.orderNo }}</strong><p class="muted">Інформаційний документ до замовлення</p></div>
+        <div class="invoice-actions"><button :disabled="saving || preliminaryPdfBusy !== null" @click="openPreliminaryPdf(o.orderNo)">{{ preliminaryPdfBusy === String(o.orderNo) ? 'Формуємо PDF…' : 'Відкрити PDF' }}</button></div>
+       </article>
+       <p v-if="detail.invoices.length > 200">Показано останні 200 рахунків.</p><p v-if="!detail.invoices.length && !preliminaryOrders.length" class="empty">Рахунків немає.</p>
        <article v-for="i in detail.invoices.slice(0, 200)" :key="i.id" class="invoice-row">
         <div class="invoice-main"><strong>№ {{ i.invoiceNo }}</strong><p class="muted">{{ invoiceStates[i.status] || i.status }} · {{ invoiceStates[i.lifecycle] || i.lifecycle }}</p></div>
         <div class="invoice-actions">
